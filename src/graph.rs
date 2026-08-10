@@ -653,30 +653,46 @@ pub fn draw(
 
     let to_screen = |world: Pos2| canvas_rect.center() + (world - view.center) * view.zoom;
 
-    for edge in &edges {
-        let highlighted = open_note == Some(edge.from);
-        let color = if highlighted { accent } else { edge_color };
-        let width = if highlighted { 2.5 } else { 1.0 };
-
-        painter.line_segment(
+    let edge_segments: Vec<[Pos2; 2]> = edges
+        .iter()
+        .map(|edge| {
             [
                 to_screen(rects[edge.from].center()),
                 to_screen(rects[edge.to].center()),
-            ],
-            Stroke::new(width * view.zoom, color),
-        );
+            ]
+        })
+        .collect();
+
+    let hovered_edge = response.hover_pos().and_then(|pos| {
+        edge_segments
+            .iter()
+            .enumerate()
+            .map(|(index, &[a, b])| (index, distance_to_segment(pos, a, b)))
+            .filter(|&(_, distance)| distance <= EDGE_HOVER_RADIUS)
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(index, _)| index)
+    });
+
+    for (index, edge) in edges.iter().enumerate() {
+        let highlighted = open_note == Some(edge.from) || hovered_edge == Some(index);
+        let color = if highlighted { accent } else { edge_color };
+        let width = if highlighted { 2.5 } else { 1.0 };
+
+        painter.line_segment(edge_segments[index], Stroke::new(width * view.zoom, color));
     }
 
     for (index, rect) in rects.iter().enumerate() {
         let screen_rect = Rect::from_min_max(to_screen(rect.min), to_screen(rect.max));
-        let is_open = open_note == Some(index);
-        let border = if is_open { accent } else { edge_color };
+        let is_hovered_endpoint = hovered_edge
+            .is_some_and(|hovered| edges[hovered].from == index || edges[hovered].to == index);
+        let highlighted = open_note == Some(index) || is_hovered_endpoint;
+        let border = if highlighted { accent } else { edge_color };
 
         painter.rect(
             screen_rect,
             4.0 * view.zoom,
             node_fill,
-            Stroke::new(if is_open { 2.0 } else { 1.0 } * view.zoom, border),
+            Stroke::new(if highlighted { 2.0 } else { 1.0 } * view.zoom, border),
             StrokeKind::Outside,
         );
 
@@ -702,6 +718,23 @@ pub fn draw(
     draw_view_controls(ui, canvas_rect, view, centroid);
 
     clicked
+}
+
+/// Screen pixels within which the mouse counts as hovering over an edge.
+const EDGE_HOVER_RADIUS: f32 = 6.0;
+
+/// The shortest distance from `point` to the line segment from `a` to `b`.
+fn distance_to_segment(point: Pos2, a: Pos2, b: Pos2) -> f32 {
+    let ab = b - a;
+    let len_sq = ab.length_sq();
+
+    let t = if len_sq > 1e-6 {
+        ((point - a).dot(ab) / len_sq).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+
+    point.distance(a + ab * t)
 }
 
 /// The average of a non-empty slice of points; the origin if it's empty.
