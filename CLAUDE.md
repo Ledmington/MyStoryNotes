@@ -21,6 +21,11 @@ Negotiables:
 - pretty colors
 
 ## Commands
+Format the code:
+```bash
+cargo fmt
+```
+
 Debug build:
 ```bash
 cargo build
@@ -49,11 +54,6 @@ cargo run --release
 Run the test suite:
 ```bash
 cargo test
-```
-
-Format the code:
-```bash
-cargo fmt
 ```
 
 ## Testing
