@@ -1,0 +1,345 @@
+[[notes]]
+name = "Overview"
+source = """
+# The Cartographer's Debt
+
+A political thriller set in the fractured empire of **Ostrenne**, three years after the Meridian Compact seized control of the old royal cartographic guild.
+
+## Logline
+
+When master cartographer [Mira Solenne](<Mira Solenne>) discovers a map proving the Compact falsified the empire's border survey, she has ten days to decide who she can still trust — including her estranged brother [Dorin Ashe](<Dorin Ashe>), now embedded with the rebel [Ember Wardens](<Ember Wardens>).
+
+## Structure
+
+Three acts: [Act One](<Act One>), [Act Two](<Act Two>), [Act Three](<Act Three>).
+
+See also the [Timeline](<Timeline>) and the [Glossary](<Glossary>) of Ostrenne-specific terms.
+
+## Status
+
+*Draft 2 — revising the midpoint reveal in Act Two.*
+"""
+
+[[notes]]
+name = "Mira Solenne"
+source = """
+# Mira Solenne
+
+**Role:** Protagonist, master cartographer of the old royal guild.
+
+**Age:** 34
+
+## Summary
+
+Mira apprenticed under the last royal cartographer before the [Meridian Compact](<Meridian Compact>) folded the guild into its bureaucracy. She now surveys border regions for the Compact while secretly restoring pre-annexation maps in the [Undercroft](<Undercroft>).
+
+## Relationships
+
+Estranged from her brother [Dorin Ashe](<Dorin Ashe>) since he joined the [Ember Wardens](<Ember Wardens>). Reports to Compact spymaster [Ysolde Kade](<Ysolde Kade>), who does not fully trust her. Protected, reluctantly, by retired soldier [Talos Bren](<Talos Bren>).
+
+## Arc
+
+Mira starts the story believing the Compact's official maps. Her arc is a slow unraveling of that trust as she pieces together the falsified border survey referenced in [Act One](<Act One>).
+"""
+
+[[notes]]
+name = "Dorin Ashe"
+source = """
+# Dorin Ashe
+
+**Role:** Mira's younger brother, courier for the Hollow Road.
+
+**Age:** 29
+
+## Summary
+
+Sent to a Compact work camp after the Thistlewick flood orphaned him and [Mira Solenne](<Mira Solenne>), Dorin escaped two years ago and vanished into the smuggling routes of the [Hollow Road](<Hollow Road>). He now carries messages — and occasionally weapons — for the [Ember Wardens](<Ember Wardens>).
+
+## Relationships
+
+Resents Mira for staying with the Compact. Owes a life-debt to [Talos Bren](<Talos Bren>), who helped him escape the work camp.
+
+## Arc
+
+Dorin's arc runs opposite Mira's: he starts distrustful of any institution and must learn, over [Act Two](<Act Two>), that not every Compact official is complicit.
+"""
+
+[[notes]]
+name = "Ysolde Kade"
+source = """
+# Ysolde Kade
+
+**Role:** Antagonist, spymaster of the [Meridian Compact](<Meridian Compact>).
+
+**Age:** 51
+
+## Summary
+
+Ysolde orchestrated the falsified border survey to justify the Compact's annexation of the [Salt Reach](<Salt Reach>). She recruited [Mira Solenne](<Mira Solenne>) precisely because Mira's talent made her useful — and her family history made her easy to threaten through [Dorin Ashe](<Dorin Ashe>).
+
+## Relationships
+
+Former mentor to [Talos Bren](<Talos Bren>) during the annexation war; the two have not spoken since he retired.
+
+## Arc
+
+Ysolde believes the annexation prevented a second famine. Her confrontation with Mira in [Act Three](<Act Three>) is framed as two people who are both right about the past and wrong about the present.
+"""
+
+[[notes]]
+name = "Talos Bren"
+source = """
+# Talos Bren
+
+**Role:** Retired Compact soldier, now a private guard.
+
+**Age:** 47
+
+## Summary
+
+A veteran of the annexation war fought over the [Salt Reach](<Salt Reach>), Talos left the Compact's service after being ordered to burn a Hollow Road safehouse with civilians still inside. He refused, and has quietly worked against Compact excess ever since — most recently by helping [Dorin Ashe](<Dorin Ashe>) escape a work camp.
+
+## Relationships
+
+Hired, without her knowledge of his history, to protect [Mira Solenne](<Mira Solenne>). Once served under [Ysolde Kade](<Ysolde Kade>).
+
+## Arc
+
+Talos spends most of the story deciding whether to tell Mira the truth about her employer before Ysolde forces the issue in [Act Three](<Act Three>).
+"""
+
+[[notes]]
+name = "The Cartouche"
+source = """
+# The Cartouche
+
+**Role:** Anonymous informant, identity unknown until [Act Two](<Act Two>).
+
+## Summary
+
+A cipher used to sign letters left in the map archives of the [Undercroft](<Undercroft>). The Cartouche feeds [Mira Solenne](<Mira Solenne>) fragments of the original, unfalsified border survey — one page at a time, always through a different courier of the [Hollow Road](<Hollow Road>).
+
+## Note
+
+*Reveal candidate: could be [Talos Bren](<Talos Bren>) using his old war contacts. See open question in [Act Two](<Act Two>).*
+"""
+
+[[notes]]
+name = "Meridian Compact"
+source = """
+# Meridian Compact
+
+**Type:** Ruling faction.
+
+## Summary
+
+Formed nine years before the story from the surviving noble houses of old Ostrenne, the Compact absorbed the royal cartographic guild's archives after the Salt Reach famine. Publicly, it governs through the [Undercroft](<Undercroft>) archive and a standing council in [Verakiln](<Verakiln>). Privately, its legitimacy rests on the border survey that [Ysolde Kade](<Ysolde Kade>) falsified.
+
+## Key members
+
+[Ysolde Kade](<Ysolde Kade>), spymaster. [Mira Solenne](<Mira Solenne>), contracted cartographer.
+
+## Opposition
+
+The [Ember Wardens](<Ember Wardens>) contest its legitimacy directly; the [Hollow Road](<Hollow Road>) simply routes around it.
+"""
+
+[[notes]]
+name = "Ember Wardens"
+source = """
+# Ember Wardens
+
+**Type:** Rebel faction, based in the [Salt Reach](<Salt Reach>).
+
+## Summary
+
+Formed by families displaced when the [Meridian Compact](<Meridian Compact>) annexed the Salt Reach. The Wardens want the original border survey made public — the same document [Mira Solenne](<Mira Solenne>) is chasing — as proof the annexation was never legal.
+
+## Key members
+
+[Dorin Ashe](<Dorin Ashe>), courier.
+
+## Relationships
+
+Supplied and moved by the [Hollow Road](<Hollow Road>) network, though the two factions disagree on tactics.
+"""
+
+[[notes]]
+name = "Hollow Road"
+source = """
+# Hollow Road
+
+**Type:** Smuggling network, no fixed leadership.
+
+## Summary
+
+A loose alliance of couriers and boat-runners operating along the river from [Thistlewick](<Thistlewick>) to [Verakiln](<Verakiln>). Nominally neutral, it moves goods and people for anyone who pays — including both the [Ember Wardens](<Ember Wardens>) and, occasionally, the [Meridian Compact](<Meridian Compact>) itself.
+
+## Key members
+
+[Dorin Ashe](<Dorin Ashe>).
+
+## Note
+
+*The Cartouche's letters are always delivered through a Hollow Road courier — worth tracking which ones, in case it narrows down [The Cartouche](<The Cartouche>)'s identity.*
+"""
+
+[[notes]]
+name = "Verakiln"
+source = """
+# Verakiln
+
+**Type:** Location — capital city of Ostrenne.
+
+## Summary
+
+Seat of the [Meridian Compact](<Meridian Compact>) council and home to the [Undercroft](<Undercroft>) archive. A walled city built on three river terraces; the lower terrace, closest to the docks, is where [Hollow Road](<Hollow Road>) couriers move most freely.
+
+## Scenes set here
+
+[Act One](<Act One>) opens here; [Act Three](<Act Three>)'s confrontation between [Mira Solenne](<Mira Solenne>) and [Ysolde Kade](<Ysolde Kade>) takes place in the council hall.
+"""
+
+[[notes]]
+name = "Salt Reach"
+source = """
+# Salt Reach
+
+**Type:** Location — desert borderland, annexed territory.
+
+## Summary
+
+Once independent, the Salt Reach was annexed by the [Meridian Compact](<Meridian Compact>) after the falsified border survey redrew its boundary. Home base of the [Ember Wardens](<Ember Wardens>) and the site of the war in which [Talos Bren](<Talos Bren>) and [Ysolde Kade](<Ysolde Kade>) both fought.
+
+## Note
+
+*Consider opening Act One with a Salt Reach cold-open instead of Verakiln — would front-load the stakes. Revisit after the draft-2 pass on [Act One](<Act One>).*
+"""
+
+[[notes]]
+name = "Thistlewick"
+source = """
+# Thistlewick
+
+**Type:** Location — river town, midpoint between [Verakiln](<Verakiln>) and the [Salt Reach](<Salt Reach>).
+
+## Summary
+
+Flooded badly six years before the story, killing the parents of [Mira Solenne](<Mira Solenne>) and [Dorin Ashe](<Dorin Ashe>). Now a waypoint for [Hollow Road](<Hollow Road>) river traffic. The siblings reunite here in [Act Two](<Act Two>).
+"""
+
+[[notes]]
+name = "Undercroft"
+source = """
+# Undercroft
+
+**Type:** Location — archive beneath [Verakiln](<Verakiln>).
+
+## Summary
+
+The former royal cartographic guild's map archive, now administered by the [Meridian Compact](<Meridian Compact>). [Mira Solenne](<Mira Solenne>) has after-hours access as a contracted restorer, which is how she finds the falsified survey in [Act One](<Act One>). [The Cartouche](<The Cartouche>) leaves letters here.
+"""
+
+[[notes]]
+name = "Act One"
+source = """
+# Act One — The Falsified Survey
+
+## Beats
+
+Mira Solenne, restoring pre-annexation maps in the Undercroft, finds a discrepancy between the archived Salt Reach border survey and a fragment of the original in her late mentor's effects.
+
+She brings the discrepancy to Talos Bren, her guard, who reacts with more concern than the situation seems to warrant — Mira notices but does not yet push.
+
+A letter signed only "The Cartouche" appears among her restoration work, confirming the discrepancy is not a filing error.
+
+## Links
+
+[Mira Solenne](<Mira Solenne>), [Talos Bren](<Talos Bren>), [The Cartouche](<The Cartouche>), [Undercroft](<Undercroft>), [Verakiln](<Verakiln>).
+
+## Open questions
+
+*Does Ysolde Kade know Mira has found the discrepancy by the end of Act One, or only in Act Two? Affects the pacing of [Act Two](<Act Two>).*
+"""
+
+[[notes]]
+name = "Act Two"
+source = """
+# Act Two — The Reunion
+
+## Beats
+
+Following the Cartouche's letters, Mira travels to Thistlewick and unexpectedly finds Dorin Ashe among the Hollow Road couriers there. Their reunion is tense — Dorin assumes she is still a Compact loyalist.
+
+Dorin reveals the Ember Wardens have long known about the falsified survey but lack proof that would hold up publicly. Mira realizes her restoration work could produce exactly that proof.
+
+Midpoint reveal (currently being revised): evidence that The Cartouche has access to material only a handful of people could have — narrowing the suspects toward Talos Bren.
+
+## Links
+
+[Mira Solenne](<Mira Solenne>), [Dorin Ashe](<Dorin Ashe>), [Talos Bren](<Talos Bren>), [The Cartouche](<The Cartouche>), [Ember Wardens](<Ember Wardens>), [Hollow Road](<Hollow Road>), [Thistlewick](<Thistlewick>).
+
+## Open questions
+
+*See the draft-2 note on [Overview](<Overview>) — this midpoint reveal is still being reworked.*
+"""
+
+[[notes]]
+name = "Act Three"
+source = """
+# Act Three — The Council Hall
+
+## Beats
+
+Mira returns to Verakiln with proof of the falsified survey and confronts Ysolde Kade directly in the council hall, with Talos Bren present.
+
+Ysolde does not deny it — she argues the annexation prevented a second famine, and asks Mira what she intends to do with proof that could destabilize the region again.
+
+Ending is open: Mira must choose between publishing the proof (siding, in effect, with the Ember Wardens) or negotiating a slower correction through the Compact itself.
+
+## Links
+
+[Mira Solenne](<Mira Solenne>), [Ysolde Kade](<Ysolde Kade>), [Talos Bren](<Talos Bren>), [Verakiln](<Verakiln>).
+"""
+
+[[notes]]
+name = "Timeline"
+source = """
+# Timeline
+
+## Before the story
+
+**Year -12** — The old Kingdom of Ostrenne falls after the Salt Reach famine. The royal cartographic guild is blamed for hiding grain-route surveys from the crown.
+
+**Year -9** — The [Meridian Compact](<Meridian Compact>) forms and absorbs the guild's archives.
+
+**Year -6** — [Mira Solenne](<Mira Solenne>) and [Dorin Ashe](<Dorin Ashe>) are orphaned in the [Thistlewick](<Thistlewick>) flood. Mira is apprenticed to the last royal cartographer; Dorin is sent to a Compact work camp.
+
+**Year -2** — Dorin escapes and disappears into the [Hollow Road](<Hollow Road>). Mira does not hear from him again until the story opens.
+
+## During the story
+
+**Day 1** — Mira finds the falsified border survey in the [Undercroft](<Undercroft>). See [Act One](<Act One>).
+
+**Day 4** — Mira is contacted by [The Cartouche](<The Cartouche>).
+
+**Day 6** — Reunion with Dorin at [Thistlewick](<Thistlewick>). See [Act Two](<Act Two>).
+
+**Day 10** — Confrontation with [Ysolde Kade](<Ysolde Kade>) in [Verakiln](<Verakiln>). See [Act Three](<Act Three>).
+"""
+
+[[notes]]
+name = "Glossary"
+source = """
+# Glossary
+
+**Ostrenne** — The empire in which the story takes place, formerly a kingdom.
+
+**Meridian Compact** — see [Meridian Compact](<Meridian Compact>).
+
+**Guild survey** — A royal-era land survey, still treated as a legal document of record under the Compact, which is why the falsified one matters.
+
+**Cartouche** — In-world, a decorative title box on a map. Also the alias used by [The Cartouche](<The Cartouche>) — a deliberate pun Mira notices in [Act One](<Act One>).
+
+**Salt Reach** — see [Salt Reach](<Salt Reach>).
+"""

@@ -1,0 +1,15 @@
+[package]
+name = "my_story_notes"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+eframe = "0.36"
+egui = "0.36"
+log = "0.4"
+pulldown-cmark = "0.13"
+rfd = "0.17"
+serde = { version = "1", features = ["derive"] }
+time = { version = "0.3", features = ["formatting", "macros"] }
+toml = "1"

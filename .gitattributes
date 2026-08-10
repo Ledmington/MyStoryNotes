@@ -1,0 +1,3 @@
+# Vendored, third-party font assets: never diff/merge as text, and exclude
+# them from GitHub's per-repo language statistics.
+assets/fonts/*.ttf binary linguist-vendored
