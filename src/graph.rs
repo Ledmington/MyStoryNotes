@@ -886,6 +886,13 @@ fn zoom_at(view: &mut View, anchor_screen: Pos2, screen_center: Pos2, factor: f3
     view.center = world_under_anchor - (anchor_screen - screen_center) / view.zoom;
 }
 
+/// Multiplies `view.zoom` by `factor` (clamped to `[MIN_ZOOM, MAX_ZOOM]`) without moving
+/// `view.center` — i.e. zooming around the center of the viewport, for the zoom buttons (as
+/// opposed to [`zoom_at`], which keeps a specific screen point fixed, for the scroll wheel).
+fn zoom_by(view: &mut View, factor: f32) {
+    view.zoom = (view.zoom * factor).clamp(MIN_ZOOM, MAX_ZOOM);
+}
+
 /// A small square icon button placed at an exact screen position, for the corner overlay
 /// controls. Returns whether it was clicked this frame.
 fn place_button(ui: &mut Ui, min: Pos2, icon_char: char) -> bool {
@@ -908,12 +915,7 @@ fn draw_view_controls(ui: &mut Ui, canvas_rect: Rect, view: &mut View, centroid:
     let mut y = canvas_rect.bottom() - MARGIN - BUTTON;
 
     if place_button(ui, Pos2::new(zoom_x, y), icon::SEARCH_MINUS) {
-        zoom_at(
-            view,
-            canvas_rect.center(),
-            canvas_rect.center(),
-            1.0 / ZOOM_BUTTON_STEP,
-        );
+        zoom_by(view, 1.0 / ZOOM_BUTTON_STEP);
     }
     y -= BUTTON + GAP;
     if place_button(ui, Pos2::new(zoom_x, y), icon::CROSSHAIRS) {
@@ -921,12 +923,7 @@ fn draw_view_controls(ui: &mut Ui, canvas_rect: Rect, view: &mut View, centroid:
     }
     y -= BUTTON + GAP;
     if place_button(ui, Pos2::new(zoom_x, y), icon::SEARCH_PLUS) {
-        zoom_at(
-            view,
-            canvas_rect.center(),
-            canvas_rect.center(),
-            ZOOM_BUTTON_STEP,
-        );
+        zoom_by(view, ZOOM_BUTTON_STEP);
     }
 
     let pad_x = canvas_rect.left() + MARGIN;

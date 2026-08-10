@@ -446,13 +446,9 @@ fn draw_cell(ui: &mut egui::Ui, project: &mut Project, cell: &mut Cell, settings
     let response = egui::Frame::group(ui.style())
         .show(ui, |ui| match cell.mode {
             CellMode::Rendered => {
-                ui.horizontal(|ui| {
-                    let label = crate::fonts::icon_label(ui, crate::fonts::icon::PENCIL, "Edit");
-
-                    if ui.small_button(label).clicked() {
-                        cell.mode = CellMode::Editing;
-                    }
-                });
+                if mode_switch_button(ui, crate::fonts::icon::PENCIL, "Edit") {
+                    cell.mode = CellMode::Editing;
+                }
 
                 let Some(note) = project.notes.get(cell.note_index) else {
                     return;
@@ -473,13 +469,9 @@ fn draw_cell(ui: &mut egui::Ui, project: &mut Project, cell: &mut Cell, settings
             }
 
             CellMode::Editing => {
-                ui.horizontal(|ui| {
-                    let label = crate::fonts::icon_label(ui, crate::fonts::icon::CHECK, "Done");
-
-                    if ui.small_button(label).clicked() {
-                        cell.mode = CellMode::Rendered;
-                    }
-                });
+                if mode_switch_button(ui, crate::fonts::icon::CHECK, "Done") {
+                    cell.mode = CellMode::Rendered;
+                }
 
                 let Some(note) = project.notes.get_mut(cell.note_index) else {
                     return;
@@ -513,6 +505,19 @@ fn draw_cell(ui: &mut egui::Ui, project: &mut Project, cell: &mut Cell, settings
     if !link_clicked && cell.mode == CellMode::Rendered && response.clicked() {
         cell.mode = CellMode::Editing;
     }
+}
+
+/// A small icon-labeled button in its own row, for switching a cell's mode (Edit/Done). Returns
+/// whether it was clicked this frame.
+fn mode_switch_button(ui: &mut egui::Ui, icon: char, label: &str) -> bool {
+    let mut clicked = false;
+
+    ui.horizontal(|ui| {
+        let label = crate::fonts::icon_label(ui, icon, label);
+        clicked = ui.small_button(label).clicked();
+    });
+
+    clicked
 }
 
 /// A labeled color picker row. Returns whether the color changed this frame.
