@@ -620,17 +620,25 @@ pub fn settle(project: &Project, settings: &SimulationSettings) -> Vec<Pos2> {
     sim.positions(&project.notes)
 }
 
+/// Which notes to highlight in the graph view from outside it, e.g. from the sidebar note list.
+/// `open_note`'s node and outgoing edges are highlighted in the palette's accent color, as is
+/// `hovered_note` (and, unlike `open_note`, all of *its* directly connected notes and the edges
+/// to them).
+pub struct NoteHighlight {
+    pub open_note: Option<usize>,
+    pub hovered_note: Option<usize>,
+}
+
 /// Draws the whole project as a graph: one rectangle per note, one line per markdown link
-/// between notes. `open_note`'s outgoing links (and the node itself) are highlighted in the
-/// palette's accent color. `simulation_settings` tunes the physics `sim` runs. `sim` carries the
-/// real-time physics state across frames and `view` carries the camera (pan/zoom) state — pass
-/// the same instances every call. The camera can be dragged with the left mouse button and
-/// zoomed with the scroll wheel, or driven with the corner buttons. Returns the index of a note
-/// the user clicked this frame, if any.
+/// between notes, highlighted per `note_highlight` (see [`NoteHighlight`]). `simulation_settings`
+/// tunes the physics `sim` runs. `sim` carries the real-time physics state across frames and
+/// `view` carries the camera (pan/zoom) state — pass the same instances every call. The camera
+/// can be dragged with the left mouse button and zoomed with the scroll wheel, or driven with the
+/// corner buttons. Returns the index of a note the user clicked this frame, if any.
 pub fn draw(
     ui: &mut Ui,
     project: &Project,
-    open_note: Option<usize>,
+    note_highlight: NoteHighlight,
     palette: &UiPalette,
     simulation_settings: &SimulationSettings,
     sim: &mut Simulation,
@@ -672,7 +680,8 @@ pub fn draw(
     let segments = edge_segments(&edges, &rects, canvas_rect, view);
     let hovered_edge = find_hovered_edge(&response, &segments);
     let highlight = Highlight {
-        open_note,
+        open_note: note_highlight.open_note,
+        hovered_note: note_highlight.hovered_note,
         hovered_edge,
         edges: &edges,
     };
@@ -747,18 +756,32 @@ fn note_rects(
         .collect()
 }
 
-/// What should currently be drawn as highlighted: `open_note`'s node and outgoing edges, plus
-/// whichever edge (if any) the mouse is hovering and that edge's two endpoint nodes.
+/// What should currently be drawn as highlighted: `open_note`'s node and outgoing edges;
+/// `hovered_note`'s node, every note directly connected to it, and the edges between them; and
+/// whichever edge (if any) the mouse is hovering directly, plus that edge's two endpoint nodes.
 struct Highlight<'a> {
     open_note: Option<usize>,
+    hovered_note: Option<usize>,
     hovered_edge: Option<usize>,
     edges: &'a [Edge],
 }
 
 impl Highlight<'_> {
+    /// Whether `a` and `b` are the two endpoints, in either direction, of some edge.
+    fn are_connected(&self, a: usize, b: usize) -> bool {
+        self.edges
+            .iter()
+            .any(|edge| (edge.from == a && edge.to == b) || (edge.from == b && edge.to == a))
+    }
+
     /// Whether the edge at `index` should be drawn highlighted.
     fn is_edge(&self, index: usize) -> bool {
-        self.open_note == Some(self.edges[index].from) || self.hovered_edge == Some(index)
+        let edge = &self.edges[index];
+
+        self.open_note == Some(edge.from)
+            || self.hovered_edge == Some(index)
+            || self.hovered_note == Some(edge.from)
+            || self.hovered_note == Some(edge.to)
     }
 
     /// Whether the note at `index` should be drawn highlighted.
@@ -766,7 +789,14 @@ impl Highlight<'_> {
         let is_hovered_endpoint = self.hovered_edge.is_some_and(|hovered| {
             self.edges[hovered].from == index || self.edges[hovered].to == index
         });
-        self.open_note == Some(index) || is_hovered_endpoint
+        let is_hovered_neighbor = self
+            .hovered_note
+            .is_some_and(|hovered| self.are_connected(index, hovered));
+
+        self.open_note == Some(index)
+            || self.hovered_note == Some(index)
+            || is_hovered_endpoint
+            || is_hovered_neighbor
     }
 }
 

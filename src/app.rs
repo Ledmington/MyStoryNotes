@@ -424,6 +424,8 @@ impl eframe::App for App {
                 });
         }
 
+        let mut hovered_note = None;
+
         egui::Panel::left("sidebar")
             .default_size(240.0)
             .show(ui, |ui| {
@@ -477,7 +479,13 @@ impl eframe::App for App {
                         .as_ref()
                         .is_some_and(|cell| cell.note_index == index);
 
-                    if ui.selectable_label(is_open, &note.name).clicked() {
+                    let response = ui.selectable_label(is_open, &note.name);
+
+                    if response.hovered() {
+                        hovered_note = Some(index);
+                    }
+
+                    if response.clicked() {
                         self.open_cell = if is_open {
                             None
                         } else {
@@ -505,7 +513,10 @@ impl eframe::App for App {
                 if let Some(clicked) = graph::draw(
                     ui,
                     project,
-                    open_note,
+                    graph::NoteHighlight {
+                        open_note,
+                        hovered_note,
+                    },
                     &self.settings.ui,
                     &self.settings.simulation,
                     &mut self.graph_sim,
@@ -527,7 +538,10 @@ impl eframe::App for App {
                     if let Some(clicked) = graph::draw(
                         ui,
                         project,
-                        open_note,
+                        graph::NoteHighlight {
+                            open_note,
+                            hovered_note,
+                        },
                         &self.settings.ui,
                         &self.settings.simulation,
                         &mut self.graph_sim,
