@@ -7,7 +7,7 @@ use egui::{Color32, FontId, Id, Pos2, Rect, Sense, Stroke, StrokeKind, TextStyle
 use crate::fonts::{self, icon};
 use crate::markdown;
 use crate::project::{Note, Project};
-use crate::settings::{self, UiPalette};
+use crate::settings::{self, SimulationSettings, UiPalette};
 
 /// A markdown link from one note to another, resolved to indices into [`Project::notes`].
 struct Edge {
@@ -131,9 +131,16 @@ impl Simulation {
         (sum / positioned.len() as f32).to_pos2()
     }
 
-    /// Advances the simulation by `dt` seconds under the force model (see module docs) and
-    /// returns whether any node is still moving fast enough to be worth another repaint.
-    fn step(&mut self, notes: &[Note], edges: &[Edge], dt: f32) -> bool {
+    /// Advances the simulation by `dt` seconds under the force model (see module docs), tuned by
+    /// `settings`, and returns whether any node is still moving fast enough to be worth another
+    /// repaint.
+    fn step(
+        &mut self,
+        notes: &[Note],
+        edges: &[Edge],
+        dt: f32,
+        settings: &SimulationSettings,
+    ) -> bool {
         let n = notes.len();
 
         if n == 0 {
@@ -157,9 +164,9 @@ impl Simulation {
         for i in 0..n {
             for j in (i + 1)..n {
                 let (r_eq, epsilon) = if connected.contains(&(i, j)) {
-                    (R_STRONG, EPS_STRONG)
+                    (settings.strong_distance, settings.strong_strength)
                 } else {
-                    (R_WEAK, EPS_WEAK)
+                    (settings.weak_distance, settings.weak_strength)
                 };
 
                 let force = lj_force(positions[i] - positions[j], r_eq, epsilon);
@@ -168,10 +175,16 @@ impl Simulation {
             }
         }
 
-        add_angular_balance_forces(&positions, edges, &mut forces);
+        add_angular_balance_forces(
+            &positions,
+            edges,
+            &mut forces,
+            settings.angular_repulsion,
+            settings.strong_distance,
+        );
 
         for (force, position) in forces.iter_mut().zip(&positions) {
-            *force -= position.to_vec2() * CENTERING;
+            *force -= position.to_vec2() * settings.centering;
         }
 
         // Each individual force above is already capped, but a node with many close neighbors
@@ -185,7 +198,7 @@ impl Simulation {
             }
         }
 
-        let damping = (-DAMPING_RATE * dt).exp();
+        let damping = (-settings.damping * dt).exp();
         let mut moving = false;
 
         for (i, note) in notes.iter().enumerate() {
@@ -254,36 +267,10 @@ const MIN_DIST: f32 = 1.0;
 const MAX_FORCE: f32 = 20_000.0;
 const MAX_DT: f32 = 1.0 / 20.0;
 
-/// Equilibrium distance and well depth for two notes with no link between them: a long distance
-/// and a shallow well, just enough to stop disconnected nodes drifting apart forever.
-const R_WEAK: f32 = 200.0;
-const EPS_WEAK: f32 = 600.0;
-
-/// Equilibrium distance and well depth for two linked notes: noticeably closer and a much deeper
-/// well, so connected notes visibly cluster together.
-const R_STRONG: f32 = 100.0;
-const EPS_STRONG: f32 = 6_000.0;
-
-/// How strongly a node's outgoing edges push each other apart angularly. Kept low: in a densely
-/// mutual-linked cluster every note acts as a "hub" to its neighbors at once, so this force
-/// compounds fast — at the previous value (4000) a 4-note clique settled at ~7x its intended
-/// [`R_STRONG`] separation instead of the ~1.14x a planar clique's geometry actually requires (a
-/// square's diagonals are unavoidably longer than its sides). A value this low needs the higher
-/// [`DAMPING_RATE`] below to still fully settle a hub-and-spoke shape (see
-/// `star_configuration_converges_without_exploding`): with less angular force pushing a hub's
-/// spokes into a stable fan, they otherwise land in a slow, never-quite-stopping rotation instead
-/// of a fixed point.
-const ANGULAR_REPULSION: f32 = 200.0;
+/// Below this angle (radians) between two outgoing neighbors, [`add_angular_balance_forces`]
+/// treats them as already maximally spread apart — a numerical-stability floor, not a
+/// user-tunable "feel" parameter, so it isn't exposed in [`SimulationSettings`].
 const MIN_ANGLE: f32 = 0.05;
-
-/// Fraction of velocity lost per second, applied as `exp(-DAMPING_RATE * dt)`. Raised alongside
-/// [`ANGULAR_REPULSION`]'s reduction (see there) to damp out the slow residual rotation a weaker
-/// angular force alone can leave a hub-and-spoke shape in.
-const DAMPING_RATE: f32 = 5.0;
-
-/// Weak pull toward the origin so the whole graph doesn't slowly drift off-canvas; the
-/// Lennard-Jones forces above are all relative/pairwise and have no absolute anchor.
-const CENTERING: f32 = 0.4;
 
 /// Below this squared speed a node is considered settled.
 const REST_VELOCITY_SQ: f32 = 4.0;
@@ -315,8 +302,17 @@ fn lj_force(delta: Vec2, r_eq: f32, epsilon: f32) -> Vec2 {
 /// Adds a tangential force to every pair of a node's *outgoing* neighbors that pushes them apart
 /// around that node, so a note's outgoing links tend to fan out rather than bunch up in one
 /// direction. The force grows as the angle between two neighbors shrinks and vanishes as it
-/// approaches a straight line (they're already as spread out as a pair can be).
-fn add_angular_balance_forces(positions: &[Pos2], edges: &[Edge], forces: &mut [Vec2]) {
+/// approaches a straight line (they're already as spread out as a pair can be). `strength` scales
+/// the force overall; `falloff_distance` is the distance beyond which it starts fading out (see
+/// below) — callers pass [`SimulationSettings::angular_repulsion`] and
+/// [`SimulationSettings::strong_distance`].
+fn add_angular_balance_forces(
+    positions: &[Pos2],
+    edges: &[Edge],
+    forces: &mut [Vec2],
+    strength: f32,
+    falloff_distance: f32,
+) {
     let n = positions.len();
     let mut outgoing: Vec<Vec<usize>> = vec![Vec::new(); n];
 
@@ -358,10 +354,10 @@ fn add_angular_balance_forces(positions: &[Pos2], edges: &[Edge], forces: &mut [
                 // graph has already grown, which is enough on its own to pump in more energy than
                 // damping can remove and make the whole graph expand without bound.
                 let avg_len = (len_i + len_j) * 0.5;
-                let falloff = (R_STRONG / avg_len).min(1.0);
+                let falloff = (falloff_distance / avg_len).min(1.0);
 
                 let raw_magnitude =
-                    ANGULAR_REPULSION * (1.0 / theta.max(MIN_ANGLE) - 1.0 / std::f32::consts::PI);
+                    strength * (1.0 / theta.max(MIN_ANGLE) - 1.0 / std::f32::consts::PI);
                 let magnitude =
                     (raw_magnitude * falloff / pairs_per_neighbor).clamp(0.0, MAX_FORCE);
                 if magnitude <= 0.0 {
@@ -594,13 +590,13 @@ fn declutter(rects: &mut [Rect]) {
 /// it settles (see [`Simulation::step`]) or a generous step budget elapses, and returns each
 /// note's final world-space position in `project.notes` order. Exposed so the physics [`draw`]
 /// relies on can be exercised in tests without a live `egui::Ui`.
-pub fn settle(project: &Project) -> Vec<Pos2> {
+pub fn settle(project: &Project, settings: &SimulationSettings) -> Vec<Pos2> {
     let edges = resolve_edges(project);
     let mut sim = Simulation::new();
     sim.sync(&project.notes, &edges);
 
     for _ in 0..1800 {
-        if !sim.step(&project.notes, &edges, 1.0 / 60.0) {
+        if !sim.step(&project.notes, &edges, 1.0 / 60.0, settings) {
             break;
         }
     }
@@ -610,15 +606,17 @@ pub fn settle(project: &Project) -> Vec<Pos2> {
 
 /// Draws the whole project as a graph: one rectangle per note, one line per markdown link
 /// between notes. `open_note`'s outgoing links (and the node itself) are highlighted in the
-/// palette's accent color. `sim` carries the real-time physics state across frames and `view`
-/// carries the camera (pan/zoom) state — pass the same instances every call. The camera can be
-/// dragged with the left mouse button and zoomed with the scroll wheel, or driven with the corner
-/// buttons. Returns the index of a note the user clicked this frame, if any.
+/// palette's accent color. `simulation_settings` tunes the physics `sim` runs. `sim` carries the
+/// real-time physics state across frames and `view` carries the camera (pan/zoom) state — pass
+/// the same instances every call. The camera can be dragged with the left mouse button and
+/// zoomed with the scroll wheel, or driven with the corner buttons. Returns the index of a note
+/// the user clicked this frame, if any.
 pub fn draw(
     ui: &mut Ui,
     project: &Project,
     open_note: Option<usize>,
     palette: &UiPalette,
+    simulation_settings: &SimulationSettings,
     sim: &mut Simulation,
     view: &mut View,
 ) -> Option<usize> {
@@ -631,7 +629,7 @@ pub fn draw(
     }
 
     let dt = ui.ctx().input(|input| input.stable_dt);
-    if sim.step(&project.notes, &edges, dt) {
+    if sim.step(&project.notes, &edges, dt, simulation_settings) {
         ui.ctx().request_repaint();
     }
     let positions = sim.positions(&project.notes);
@@ -1041,7 +1039,12 @@ mod tests {
 
     #[test]
     fn lj_force_is_repulsive_below_and_attractive_above_equilibrium() {
-        for (r_eq, epsilon) in [(R_WEAK, EPS_WEAK), (R_STRONG, EPS_STRONG)] {
+        let settings = SimulationSettings::default();
+
+        for (r_eq, epsilon) in [
+            (settings.weak_distance, settings.weak_strength),
+            (settings.strong_distance, settings.strong_strength),
+        ] {
             let repulsive = lj_force(Vec2::new(r_eq * 0.5, 0.0), r_eq, epsilon);
             assert!(repulsive.x > 0.0, "expected repulsion below equilibrium");
 
@@ -1059,14 +1062,16 @@ mod tests {
     /// Steps `sim` until it settles, then confirms it stays put for a further window — the core
     /// "does it converge" property every scenario below relies on. Returns the settled positions.
     fn assert_converges(sim: &mut Simulation, notes: &[Note], edges: &[Edge]) -> Vec<Pos2> {
+        let settings = SimulationSettings::default();
+
         for _ in 0..1800 {
-            sim.step(notes, edges, 1.0 / 60.0);
+            sim.step(notes, edges, 1.0 / 60.0, &settings);
         }
 
         let before = sim.positions(notes);
 
         for _ in 0..600 {
-            sim.step(notes, edges, 1.0 / 60.0);
+            sim.step(notes, edges, 1.0 / 60.0, &settings);
         }
 
         let after = sim.positions(notes);
@@ -1274,9 +1279,10 @@ mod tests {
 
         let mut sim = Simulation::new();
         sim.sync(&project.notes, &edges);
+        let settings = SimulationSettings::default();
 
         for _ in 0..1800 {
-            sim.step(&project.notes, &edges, 1.0 / 60.0);
+            sim.step(&project.notes, &edges, 1.0 / 60.0, &settings);
         }
 
         // The tangential angular-balance force doesn't necessarily settle to exactly zero net
@@ -1315,8 +1321,15 @@ mod tests {
         let positions = [center, i_pos, j_pos];
         let edges = vec![Edge { from: 0, to: 1 }, Edge { from: 0, to: 2 }];
 
+        let settings = SimulationSettings::default();
         let mut forces = vec![Vec2::ZERO; 3];
-        add_angular_balance_forces(&positions, &edges, &mut forces);
+        add_angular_balance_forces(
+            &positions,
+            &edges,
+            &mut forces,
+            settings.angular_repulsion,
+            settings.strong_distance,
+        );
 
         assert!(
             forces[1].y > 0.0,

@@ -133,9 +133,49 @@ impl Default for EditPalette {
     }
 }
 
-/// The app's persisted preferences: the three color palettes and font sizes editable from the
-/// Settings panel. Stored as a single human-readable TOML file at `~/.my_story_notes`,
-/// independent of any story project.
+/// Tunable parameters for the graph view's force-directed layout, editable from the Settings
+/// panel. Notes push and pull on each other like a Lennard-Jones potential: closer than their
+/// equilibrium distance they repel, farther they attract, and the "strength" fields set how hard
+/// that pull/push resists being moved away from equilibrium.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SimulationSettings {
+    /// Equilibrium distance between two notes with no link between them.
+    pub weak_distance: f32,
+    /// How strongly unconnected notes resist drifting away from [`Self::weak_distance`].
+    pub weak_strength: f32,
+    /// Equilibrium distance between two linked notes.
+    pub strong_distance: f32,
+    /// How strongly linked notes resist drifting away from [`Self::strong_distance`].
+    pub strong_strength: f32,
+    /// How strongly a note's outgoing links push each other apart angularly, so they fan out
+    /// around it instead of bunching together.
+    pub angular_repulsion: f32,
+    /// How quickly motion settles down; higher values reach a resting layout faster but can look
+    /// stiffer while animating.
+    pub damping: f32,
+    /// How strongly the whole graph is pulled toward the center, keeping it from drifting off
+    /// (or expanding off) the canvas.
+    pub centering: f32,
+}
+
+impl Default for SimulationSettings {
+    fn default() -> Self {
+        Self {
+            weak_distance: 200.0,
+            weak_strength: 600.0,
+            strong_distance: 100.0,
+            strong_strength: 6_000.0,
+            angular_repulsion: 200.0,
+            damping: 5.0,
+            centering: 0.4,
+        }
+    }
+}
+
+/// The app's persisted preferences: the three color palettes, font sizes, and graph physics
+/// parameters editable from the Settings panel. Stored as a single human-readable TOML file at
+/// `~/.my_story_notes`, independent of any story project.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -143,6 +183,7 @@ pub struct Settings {
     pub render: RenderPalette,
     pub edit: EditPalette,
     pub font_size: FontSizes,
+    pub simulation: SimulationSettings,
 }
 
 impl Settings {

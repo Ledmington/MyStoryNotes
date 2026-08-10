@@ -112,6 +112,58 @@ impl App {
         changed |= color_row(ui, "Links", &mut self.settings.edit.link);
 
         ui.add_space(12.0);
+        ui.label("Graph physics");
+        changed |= simulation_param_row(
+            ui,
+            "Unconnected distance",
+            "How far apart two notes with no link between them settle.",
+            &mut self.settings.simulation.weak_distance,
+            50.0..=500.0,
+        );
+        changed |= simulation_param_row(
+            ui,
+            "Unconnected strength",
+            "How strongly unconnected notes resist moving away from that distance.",
+            &mut self.settings.simulation.weak_strength,
+            50.0..=2_000.0,
+        );
+        changed |= simulation_param_row(
+            ui,
+            "Linked distance",
+            "How far apart two linked notes settle.",
+            &mut self.settings.simulation.strong_distance,
+            20.0..=300.0,
+        );
+        changed |= simulation_param_row(
+            ui,
+            "Linked strength",
+            "How strongly linked notes resist moving away from that distance.",
+            &mut self.settings.simulation.strong_strength,
+            500.0..=20_000.0,
+        );
+        changed |= simulation_param_row(
+            ui,
+            "Angular spread",
+            "How strongly a note's links fan out around it instead of bunching together.",
+            &mut self.settings.simulation.angular_repulsion,
+            0.0..=2_000.0,
+        );
+        changed |= simulation_param_row(
+            ui,
+            "Damping",
+            "How quickly motion settles down; higher values are stiffer but settle faster.",
+            &mut self.settings.simulation.damping,
+            0.5..=15.0,
+        );
+        changed |= simulation_param_row(
+            ui,
+            "Centering",
+            "How strongly the whole graph is pulled toward the center of the canvas.",
+            &mut self.settings.simulation.centering,
+            0.0..=2.0,
+        );
+
+        ui.add_space(12.0);
 
         if ui.button("Reset to Defaults").clicked() {
             self.settings = Settings::default();
@@ -393,6 +445,7 @@ impl eframe::App for App {
                     project,
                     open_note,
                     &self.settings.ui,
+                    &self.settings.simulation,
                     &mut self.graph_sim,
                     &mut self.graph_view,
                 ) {
@@ -414,6 +467,7 @@ impl eframe::App for App {
                         project,
                         open_note,
                         &self.settings.ui,
+                        &self.settings.simulation,
                         &mut self.graph_sim,
                         &mut self.graph_view,
                     ) {
@@ -536,6 +590,23 @@ fn color_row(ui: &mut egui::Ui, label: &str, color: &mut [u8; 3]) -> bool {
 fn font_size_row(ui: &mut egui::Ui, label: &str, size: &mut f32) -> bool {
     ui.horizontal(|ui| {
         ui.add(egui::Slider::new(size, 8.0..=32.0).text(label))
+            .changed()
+    })
+    .inner
+}
+
+/// A labeled slider row for a [`crate::settings::SimulationSettings`] field, with a tooltip
+/// explaining what it does. Returns whether the value changed this frame.
+fn simulation_param_row(
+    ui: &mut egui::Ui,
+    label: &str,
+    tooltip: &str,
+    value: &mut f32,
+    range: std::ops::RangeInclusive<f32>,
+) -> bool {
+    ui.horizontal(|ui| {
+        ui.add(egui::Slider::new(value, range).text(label))
+            .on_hover_text(tooltip)
             .changed()
     })
     .inner

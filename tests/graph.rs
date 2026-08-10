@@ -2,6 +2,7 @@ mod common;
 
 use egui::{Pos2, Vec2};
 use my_story_notes::graph;
+use my_story_notes::settings::SimulationSettings;
 
 #[test]
 fn two_disconnected_cliques_settle_into_separate_tight_clusters() {
@@ -11,7 +12,7 @@ fn two_disconnected_cliques_settle_into_separate_tight_clusters() {
     // cluster, and the two blobs should settle clearly apart from each other rather than merging
     // into one cloud.
     let project = common::fixture("two_blobs_project.mystorynotes");
-    let positions = graph::settle(&project);
+    let positions = graph::settle(&project, &SimulationSettings::default());
 
     let blob_a = &positions[0..4];
     let blob_b = &positions[4..8];
