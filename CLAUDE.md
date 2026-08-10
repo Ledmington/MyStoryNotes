@@ -64,6 +64,7 @@ Don't overcomplicate things until there is a clear need.
 Prefer keeping everything in a single package until there is a clear need to split things into different libraries.
 Try to follow the rule of three: if a certain functionality is not needed in at least three different places, do not refactor it.
 A lot of small functions is preferable to few big ones.
+Many small files are preferable to a few big ones.
 Keep comments to a minimum, unless something weird/unusual is going on.
 Document all public (`pub` and `pub(crate)`) APIs with a minimal description of what the struct/field/method's purpose is.
 When possible, abstract the UI logic into something testable without the graphics.
