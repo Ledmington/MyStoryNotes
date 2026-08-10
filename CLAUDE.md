@@ -66,3 +66,4 @@ Formatting, linting, and testing don't need to happen at every step, but are req
 
 Open questions should be clarified before implementation, rather than resolved by guessing.
 A request that contradicts this document should be flagged, along with a proposed update to this document.
+Any change to the project's workflow (build/run/test/lint commands, requirements, setup steps, etc.) must be reflected in both this file and `README.md`.
