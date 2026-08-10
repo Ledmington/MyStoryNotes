@@ -607,6 +607,7 @@ pub fn draw(
         ui.ctx().request_repaint();
     }
     let positions = sim.positions(&project.notes);
+    let centroid = average(&positions);
 
     let text_color = settings::rgb(palette.text);
     let node_fill = mix(settings::rgb(palette.panel_background), text_color, 0.12);
@@ -698,9 +699,19 @@ pub fn draw(
         }
     }
 
-    draw_view_controls(ui, canvas_rect, view);
+    draw_view_controls(ui, canvas_rect, view, centroid);
 
     clicked
+}
+
+/// The average of a non-empty slice of points; the origin if it's empty.
+fn average(points: &[Pos2]) -> Pos2 {
+    if points.is_empty() {
+        return Pos2::ZERO;
+    }
+
+    let sum = points.iter().fold(Vec2::ZERO, |acc, p| acc + p.to_vec2());
+    (sum / points.len() as f32).to_pos2()
 }
 
 /// Multiplies `view.zoom` by `factor` (clamped to `[MIN_ZOOM, MAX_ZOOM]`), moving `view.center` so
@@ -724,8 +735,10 @@ fn place_button(ui: &mut Ui, min: Pos2, icon_char: char) -> bool {
 }
 
 /// Overlay controls in the canvas's corners, for driving the camera without a mouse: zoom
-/// in/reset/out stacked in the bottom-right, and an arrow cross for panning in the bottom-left.
-fn draw_view_controls(ui: &mut Ui, canvas_rect: Rect, view: &mut View) {
+/// in/reset/out stacked in the bottom-right, and an arrow cross for panning (with a recenter
+/// button in its middle) in the bottom-left. `centroid` is the graph's current center of mass, in
+/// world space, for the recenter button to jump to.
+fn draw_view_controls(ui: &mut Ui, canvas_rect: Rect, view: &mut View, centroid: Pos2) {
     const BUTTON: f32 = 24.0;
     const GAP: f32 = 2.0;
     const MARGIN: f32 = 10.0;
@@ -778,6 +791,9 @@ fn draw_view_controls(ui: &mut Ui, canvas_rect: Rect, view: &mut View) {
         icon::ARROW_DOWN,
     ) {
         view.center.y += PAN_BUTTON_STEP / view.zoom;
+    }
+    if place_button(ui, Pos2::new(pad_x + step, pad_y + step), icon::BULLSEYE) {
+        view.center = centroid;
     }
 }
 

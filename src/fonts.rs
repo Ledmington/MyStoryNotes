@@ -23,6 +23,7 @@ pub mod icon {
     pub const SEARCH_PLUS: char = '\u{f00e}';
     pub const SEARCH_MINUS: char = '\u{f010}';
     pub const CROSSHAIRS: char = '\u{f05b}';
+    pub const BULLSEYE: char = '\u{f140}';
     pub const ARROW_UP: char = '\u{f062}';
     pub const ARROW_DOWN: char = '\u{f063}';
     pub const ARROW_LEFT: char = '\u{f060}';
