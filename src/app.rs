@@ -24,6 +24,7 @@ pub struct App {
     show_settings: bool,
     notifications: Notifications,
     graph_sim: graph::Simulation,
+    graph_view: graph::View,
 }
 
 impl App {
@@ -43,6 +44,7 @@ impl App {
             show_settings: false,
             notifications,
             graph_sim: graph::Simulation::new(),
+            graph_view: graph::View::new(),
         }
     }
 
@@ -392,6 +394,7 @@ impl eframe::App for App {
                     open_note,
                     &self.settings.ui,
                     &mut self.graph_sim,
+                    &mut self.graph_view,
                 ) {
                     self.open_cell = Some(Cell {
                         note_index: clicked,
@@ -412,6 +415,7 @@ impl eframe::App for App {
                         open_note,
                         &self.settings.ui,
                         &mut self.graph_sim,
+                        &mut self.graph_view,
                     ) {
                         cell.note_index = clicked;
                         cell.mode = CellMode::Rendered;

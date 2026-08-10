@@ -4,6 +4,7 @@ use std::hash::{Hash, Hasher};
 use eframe::egui;
 use egui::{Color32, Id, Pos2, Rect, Sense, Stroke, StrokeKind, TextStyle, Ui, Vec2};
 
+use crate::fonts::{self, icon};
 use crate::markdown;
 use crate::project::{Note, Project};
 use crate::settings::{self, UiPalette};
@@ -209,6 +210,45 @@ impl Simulation {
             .collect()
     }
 }
+
+/// The graph view's camera: `center` is the world-space point shown at the middle of the canvas,
+/// `zoom` is the world-to-screen scale factor (screen pixels per world unit). Persists across
+/// frames like [`Simulation`] does, so panning and zooming don't reset on every draw; own one for
+/// as long as the graph view should remember its camera and pass the same instance every call to
+/// [`draw`].
+pub struct View {
+    center: Pos2,
+    zoom: f32,
+}
+
+impl Default for View {
+    fn default() -> Self {
+        Self {
+            center: Pos2::ZERO,
+            zoom: 1.0,
+        }
+    }
+}
+
+impl View {
+    /// A fresh camera centered on the origin at 1:1 zoom, matching where [`initial_layout`]
+    /// places new graphs.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+const MIN_ZOOM: f32 = 0.1;
+const MAX_ZOOM: f32 = 4.0;
+
+/// Multiplicative zoom change per "notch" of scroll-wheel input.
+const ZOOM_WHEEL_SENSITIVITY: f32 = 0.0015;
+
+/// Multiplicative zoom change applied by a single click of the +/- zoom buttons.
+const ZOOM_BUTTON_STEP: f32 = 1.25;
+
+/// Screen pixels the pan buttons move the camera by per click, before dividing by zoom.
+const PAN_BUTTON_STEP: f32 = 80.0;
 
 const MIN_DIST: f32 = 1.0;
 const MAX_FORCE: f32 = 20_000.0;
@@ -542,14 +582,17 @@ fn declutter(rects: &mut [Rect]) {
 
 /// Draws the whole project as a graph: one rectangle per note, one line per markdown link
 /// between notes. `open_note`'s outgoing links (and the node itself) are highlighted in the
-/// palette's accent color. `sim` carries the real-time physics state across frames — pass the
-/// same instance every call. Returns the index of a note the user clicked this frame, if any.
+/// palette's accent color. `sim` carries the real-time physics state across frames and `view`
+/// carries the camera (pan/zoom) state — pass the same instances every call. The camera can be
+/// dragged with the left mouse button and zoomed with the scroll wheel, or driven with the corner
+/// buttons. Returns the index of a note the user clicked this frame, if any.
 pub fn draw(
     ui: &mut Ui,
     project: &Project,
     open_note: Option<usize>,
     palette: &UiPalette,
     sim: &mut Simulation,
+    view: &mut View,
 ) -> Option<usize> {
     let edges = resolve_edges(project);
     sim.sync(&project.notes, &edges);
@@ -573,78 +616,169 @@ pub fn draw(
 
     let mut clicked = None;
 
-    egui::ScrollArea::both().show(ui, |ui| {
-        let galleys: Vec<_> = project
-            .notes
-            .iter()
-            .map(|note| {
-                ui.painter()
-                    .layout_no_wrap(note.name.clone(), font_id.clone(), text_color)
-            })
-            .collect();
+    let galleys: Vec<_> = project
+        .notes
+        .iter()
+        .map(|note| {
+            ui.painter()
+                .layout_no_wrap(note.name.clone(), font_id.clone(), text_color)
+        })
+        .collect();
 
-        let mut rects: Vec<Rect> = galleys
-            .iter()
-            .zip(&positions)
-            .map(|(galley, &center)| {
-                Rect::from_center_size(center, galley.size() + Vec2::new(24.0, 16.0))
-            })
-            .collect();
+    let mut rects: Vec<Rect> = galleys
+        .iter()
+        .zip(&positions)
+        .map(|(galley, &center)| {
+            Rect::from_center_size(center, galley.size() + Vec2::new(24.0, 16.0))
+        })
+        .collect();
 
-        declutter(&mut rects);
+    declutter(&mut rects);
 
-        let bounds = rects
-            .iter()
-            .fold(Rect::NOTHING, |acc, rect| acc.union(*rect));
-        let margin = Vec2::splat(24.0);
-        let canvas_size = bounds.size() + margin * 2.0;
+    let (response, painter) = ui.allocate_painter(ui.available_size(), Sense::click_and_drag());
+    let canvas_rect = response.rect;
 
-        let (response, painter) = ui.allocate_painter(canvas_size, Sense::hover());
-        let offset = response.rect.min - bounds.min + margin;
+    if response.dragged() {
+        view.center -= response.drag_delta() / view.zoom;
+    }
 
-        for edge in &edges {
-            let highlighted = open_note == Some(edge.from);
-            let color = if highlighted { accent } else { edge_color };
-            let width = if highlighted { 2.5 } else { 1.0 };
-
-            painter.line_segment(
-                [
-                    rects[edge.from].center() + offset,
-                    rects[edge.to].center() + offset,
-                ],
-                Stroke::new(width, color),
-            );
+    if let Some(hover_pos) = response.hover_pos() {
+        let scroll = ui.input(|input| input.smooth_scroll_delta.y);
+        if scroll != 0.0 {
+            let factor = (scroll * ZOOM_WHEEL_SENSITIVITY).exp();
+            zoom_at(view, hover_pos, canvas_rect.center(), factor);
         }
+    }
 
-        for (index, (rect, galley)) in rects.iter().zip(&galleys).enumerate() {
-            let screen_rect = rect.translate(offset);
-            let is_open = open_note == Some(index);
-            let border = if is_open { accent } else { edge_color };
+    let to_screen = |world: Pos2| canvas_rect.center() + (world - view.center) * view.zoom;
 
-            painter.rect(
-                screen_rect,
-                4.0,
-                node_fill,
-                Stroke::new(if is_open { 2.0 } else { 1.0 }, border),
-                StrokeKind::Outside,
-            );
-            painter.galley(
-                screen_rect.center() - galley.size() / 2.0,
-                galley.clone(),
-                text_color,
-            );
+    for edge in &edges {
+        let highlighted = open_note == Some(edge.from);
+        let color = if highlighted { accent } else { edge_color };
+        let width = if highlighted { 2.5 } else { 1.0 };
 
-            let response = ui
-                .interact(screen_rect, Id::new(("graph-node", index)), Sense::click())
-                .on_hover_cursor(egui::CursorIcon::PointingHand);
+        painter.line_segment(
+            [
+                to_screen(rects[edge.from].center()),
+                to_screen(rects[edge.to].center()),
+            ],
+            Stroke::new(width * view.zoom, color),
+        );
+    }
 
-            if response.clicked() {
-                clicked = Some(index);
-            }
+    for (index, rect) in rects.iter().enumerate() {
+        let screen_rect = Rect::from_min_max(to_screen(rect.min), to_screen(rect.max));
+        let is_open = open_note == Some(index);
+        let border = if is_open { accent } else { edge_color };
+
+        painter.rect(
+            screen_rect,
+            4.0 * view.zoom,
+            node_fill,
+            Stroke::new(if is_open { 2.0 } else { 1.0 } * view.zoom, border),
+            StrokeKind::Outside,
+        );
+
+        let mut scaled_font = font_id.clone();
+        scaled_font.size *= view.zoom;
+        let screen_galley =
+            painter.layout_no_wrap(project.notes[index].name.clone(), scaled_font, text_color);
+        painter.galley(
+            screen_rect.center() - screen_galley.size() / 2.0,
+            screen_galley,
+            text_color,
+        );
+
+        let response = ui
+            .interact(screen_rect, Id::new(("graph-node", index)), Sense::click())
+            .on_hover_cursor(egui::CursorIcon::PointingHand);
+
+        if response.clicked() {
+            clicked = Some(index);
         }
-    });
+    }
+
+    draw_view_controls(ui, canvas_rect, view);
 
     clicked
+}
+
+/// Multiplies `view.zoom` by `factor` (clamped to `[MIN_ZOOM, MAX_ZOOM]`), moving `view.center` so
+/// the world point under `anchor_screen` stays fixed on screen — i.e. zooming towards/away from
+/// that point rather than the camera center. `screen_center` is where `view.center` itself
+/// projects to, i.e. the canvas's screen-space center.
+fn zoom_at(view: &mut View, anchor_screen: Pos2, screen_center: Pos2, factor: f32) {
+    let new_zoom = (view.zoom * factor).clamp(MIN_ZOOM, MAX_ZOOM);
+    let world_under_anchor = view.center + (anchor_screen - screen_center) / view.zoom;
+    view.zoom = new_zoom;
+    view.center = world_under_anchor - (anchor_screen - screen_center) / view.zoom;
+}
+
+/// A small square icon button placed at an exact screen position, for the corner overlay
+/// controls. Returns whether it was clicked this frame.
+fn place_button(ui: &mut Ui, min: Pos2, icon_char: char) -> bool {
+    const SIZE: f32 = 24.0;
+    let rect = Rect::from_min_size(min, Vec2::splat(SIZE));
+    let label = fonts::icon_only(ui, icon_char);
+    ui.put(rect, egui::Button::new(label)).clicked()
+}
+
+/// Overlay controls in the canvas's corners, for driving the camera without a mouse: zoom
+/// in/reset/out stacked in the bottom-right, and an arrow cross for panning in the bottom-left.
+fn draw_view_controls(ui: &mut Ui, canvas_rect: Rect, view: &mut View) {
+    const BUTTON: f32 = 24.0;
+    const GAP: f32 = 2.0;
+    const MARGIN: f32 = 10.0;
+
+    let zoom_x = canvas_rect.right() - MARGIN - BUTTON;
+    let mut y = canvas_rect.bottom() - MARGIN - BUTTON;
+
+    if place_button(ui, Pos2::new(zoom_x, y), icon::SEARCH_MINUS) {
+        zoom_at(
+            view,
+            canvas_rect.center(),
+            canvas_rect.center(),
+            1.0 / ZOOM_BUTTON_STEP,
+        );
+    }
+    y -= BUTTON + GAP;
+    if place_button(ui, Pos2::new(zoom_x, y), icon::CROSSHAIRS) {
+        *view = View::default();
+    }
+    y -= BUTTON + GAP;
+    if place_button(ui, Pos2::new(zoom_x, y), icon::SEARCH_PLUS) {
+        zoom_at(
+            view,
+            canvas_rect.center(),
+            canvas_rect.center(),
+            ZOOM_BUTTON_STEP,
+        );
+    }
+
+    let pad_x = canvas_rect.left() + MARGIN;
+    let pad_y = canvas_rect.bottom() - MARGIN - BUTTON * 3.0 - GAP * 2.0;
+    let step = BUTTON + GAP;
+
+    if place_button(ui, Pos2::new(pad_x + step, pad_y), icon::ARROW_UP) {
+        view.center.y -= PAN_BUTTON_STEP / view.zoom;
+    }
+    if place_button(ui, Pos2::new(pad_x, pad_y + step), icon::ARROW_LEFT) {
+        view.center.x -= PAN_BUTTON_STEP / view.zoom;
+    }
+    if place_button(
+        ui,
+        Pos2::new(pad_x + step * 2.0, pad_y + step),
+        icon::ARROW_RIGHT,
+    ) {
+        view.center.x += PAN_BUTTON_STEP / view.zoom;
+    }
+    if place_button(
+        ui,
+        Pos2::new(pad_x + step, pad_y + step * 2.0),
+        icon::ARROW_DOWN,
+    ) {
+        view.center.y += PAN_BUTTON_STEP / view.zoom;
+    }
 }
 
 /// Blends two colors channel-wise; `t` of 0.0 is `a`, 1.0 is `b`.

@@ -13,11 +13,19 @@ const MONO_ITALIC: &str = "mono-italic";
 const MONO_BOLD_ITALIC: &str = "mono-bold-italic";
 const ICONS: &str = "icons";
 
-/// Glyphs from the bundled Font Awesome 4 icon font, for use with [`icon_label`].
+/// Glyphs from the bundled Font Awesome 4 icon font, for use with [`icon_label`] and
+/// [`icon_only`].
 pub mod icon {
     pub const PENCIL: char = '\u{f040}';
     pub const COG: char = '\u{f013}';
     pub const TIMES: char = '\u{f00d}';
+    pub const SEARCH_PLUS: char = '\u{f00e}';
+    pub const SEARCH_MINUS: char = '\u{f010}';
+    pub const CROSSHAIRS: char = '\u{f05b}';
+    pub const ARROW_UP: char = '\u{f062}';
+    pub const ARROW_DOWN: char = '\u{f063}';
+    pub const ARROW_LEFT: char = '\u{f060}';
+    pub const ARROW_RIGHT: char = '\u{f061}';
 }
 
 /// Registers the fonts this app bundles: a serif family (render mode) and a monospace family
@@ -136,6 +144,26 @@ pub fn icon_label(ui: &Ui, icon: char, label: &str) -> WidgetText {
         0.0,
         TextFormat {
             font_id: TextStyle::Button.resolve(ui.style()),
+            color,
+            ..Default::default()
+        },
+    );
+
+    job.into()
+}
+
+/// A button label showing only an [`icon`] glyph and no text, e.g. `icon_only(ui,
+/// icon::SEARCH_PLUS)`, for small square controls where a text label would not fit.
+pub fn icon_only(ui: &Ui, icon: char) -> WidgetText {
+    let size = TextStyle::Button.resolve(ui.style()).size;
+    let color = ui.visuals().text_color();
+
+    let mut job = LayoutJob::default();
+    job.append(
+        &icon.to_string(),
+        0.0,
+        TextFormat {
+            font_id: FontId::new(size, FontFamily::Name(ICONS.into())),
             color,
             ..Default::default()
         },
