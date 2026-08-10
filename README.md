@@ -64,7 +64,7 @@ copied anywhere and run on its own.
   open; click any node to open that note.
 
 An example project with sample notes is included at
-[`tests/fixtures/example-project.mystorynotes`](tests/fixtures/example-project.mystorynotes)
+[`tests/fixtures/example_project.mystorynotes`](tests/fixtures/example_project.mystorynotes)
 — open it from the app to see the format and the graph view in action. It
 doubles as a fixture for the integration tests (see Development below).
 

@@ -59,7 +59,7 @@ cargo fmt
 ## Testing
 Unit tests live alongside the code they test, in `#[cfg(test)] mod tests` within each module, and may use private internals freely.
 Integration/end-to-end tests live under `tests/` and exercise the app only through its public API — this is why `src/lib.rs` exists (with `src/main.rs` as a thin binary wrapper around it): a `tests/` file is compiled as a separate crate and can't see anything the lib doesn't expose as `pub`.
-`tests/common/mod.rs` holds shared fixture-loading helpers; fixture project files live in `tests/fixtures/`, including `example-project.mystorynotes`, the user-facing sample referenced from the README.
+`tests/common/mod.rs` holds shared fixture-loading helpers; fixture project files live in `tests/fixtures/`, including `example_project.mystorynotes`, the user-facing sample referenced from the README.
 
 ## General philosophy and code style
 Don't overcomplicate things until there is a clear need.
