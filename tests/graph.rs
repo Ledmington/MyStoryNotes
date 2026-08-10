@@ -48,6 +48,44 @@ fn two_disconnected_cliques_settle_into_separate_tight_clusters() {
     );
 }
 
+#[test]
+fn star_topology_keeps_hub_close_to_leaves_without_exploding() {
+    // A single hub note linked out to six leaves, none of which link to each other or back to
+    // the hub — see `tests/fixtures/star_project.mystorynotes`. Regression coverage (at the
+    // public-API level) for a real bug where the angular-balance force had no distance falloff,
+    // magnitude clamp, or normalization by how many neighbors it was spread across, so a
+    // well-linked hub alone was enough to make the whole graph expand without ever settling.
+    let project = common::fixture("star_project.mystorynotes");
+    let positions = graph::settle(&project, &SimulationSettings::default());
+
+    assert!(
+        positions.iter().all(|p| p.x.is_finite() && p.y.is_finite()),
+        "the star should settle to finite positions, not explode outward"
+    );
+
+    let hub = positions[0];
+    let leaves = &positions[1..];
+
+    let hub_leaf_avg: f32 = leaves
+        .iter()
+        .map(|leaf| (*leaf - hub).length())
+        .sum::<f32>()
+        / leaves.len() as f32;
+
+    assert!(
+        hub_leaf_avg < 5000.0,
+        "hub and leaves settled implausibly far apart: {hub_leaf_avg}px"
+    );
+
+    let leaf_leaf_avg = avg_pairwise(leaves);
+
+    assert!(
+        hub_leaf_avg < leaf_leaf_avg,
+        "connected hub-leaf pairs should average closer together than unconnected leaf-leaf \
+         pairs: hub_leaf_avg={hub_leaf_avg}, leaf_leaf_avg={leaf_leaf_avg}"
+    );
+}
+
 /// The average of a slice of points.
 fn centroid(points: &[Pos2]) -> Pos2 {
     let sum = points.iter().fold(Vec2::ZERO, |acc, p| acc + p.to_vec2());

@@ -1,0 +1,27 @@
+[[notes]]
+name = "Hub"
+source = "Linked to [Leaf1](Leaf1), [Leaf2](Leaf2), [Leaf3](Leaf3), [Leaf4](Leaf4), [Leaf5](Leaf5), [Leaf6](Leaf6)."
+
+[[notes]]
+name = "Leaf1"
+source = "A leaf note."
+
+[[notes]]
+name = "Leaf2"
+source = "A leaf note."
+
+[[notes]]
+name = "Leaf3"
+source = "A leaf note."
+
+[[notes]]
+name = "Leaf4"
+source = "A leaf note."
+
+[[notes]]
+name = "Leaf5"
+source = "A leaf note."
+
+[[notes]]
+name = "Leaf6"
+source = "A leaf note."
