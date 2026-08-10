@@ -15,11 +15,41 @@ struct Cell {
     mode: CellMode,
 }
 
+/// How the note list sidebar orders its notes. Clicking a sort button cycles its two variants
+/// (ascending, then descending) before landing back on [`Self::Unsorted`] — see
+/// [`NoteSort::cycle`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NoteSort {
+    /// The order notes are stored in the project file, unchanged.
+    Unsorted,
+    NameAscending,
+    NameDescending,
+    ConnectionsAscending,
+    ConnectionsDescending,
+}
+
+impl NoteSort {
+    /// The state after clicking a sort button whose two directions are `ascending`/`descending`:
+    /// `ascending` if neither is currently active, `descending` if `ascending` is active, or
+    /// [`Self::Unsorted`] if `descending` is active — so repeated clicks cycle ascending →
+    /// descending → unsorted → ascending → ...
+    fn cycle(self, ascending: Self, descending: Self) -> Self {
+        if self == ascending {
+            descending
+        } else if self == descending {
+            Self::Unsorted
+        } else {
+            ascending
+        }
+    }
+}
+
 pub struct App {
     project: Option<Project>,
     open_cell: Option<Cell>,
     new_note_dialog: bool,
     new_note_name: String,
+    note_sort: NoteSort,
     settings: Settings,
     show_settings: bool,
     notifications: Notifications,
@@ -40,6 +70,7 @@ impl App {
             open_cell: None,
             new_note_dialog: false,
             new_note_name: String::new(),
+            note_sort: NoteSort::Unsorted,
             settings: Settings::load(),
             show_settings: false,
             notifications,
@@ -407,23 +438,54 @@ impl eframe::App for App {
 
                 if project.notes.is_empty() {
                     ui.label("No notes yet.");
-                } else {
-                    for (index, note) in project.notes.iter().enumerate() {
-                        let is_open = self
-                            .open_cell
-                            .as_ref()
-                            .is_some_and(|cell| cell.note_index == index);
+                    return;
+                }
 
-                        if ui.selectable_label(is_open, &note.name).clicked() {
-                            self.open_cell = if is_open {
-                                None
-                            } else {
-                                Some(Cell {
-                                    note_index: index,
-                                    mode: CellMode::Rendered,
-                                })
-                            };
-                        }
+                ui.horizontal(|ui| {
+                    ui.label("Sort:");
+
+                    if sort_button(
+                        ui,
+                        "Name",
+                        self.note_sort,
+                        NoteSort::NameAscending,
+                        NoteSort::NameDescending,
+                    ) {
+                        self.note_sort = self
+                            .note_sort
+                            .cycle(NoteSort::NameAscending, NoteSort::NameDescending);
+                    }
+                    if sort_button(
+                        ui,
+                        "Connections",
+                        self.note_sort,
+                        NoteSort::ConnectionsAscending,
+                        NoteSort::ConnectionsDescending,
+                    ) {
+                        self.note_sort = self.note_sort.cycle(
+                            NoteSort::ConnectionsAscending,
+                            NoteSort::ConnectionsDescending,
+                        );
+                    }
+                });
+                ui.separator();
+
+                for index in sorted_note_indices(project, self.note_sort) {
+                    let note = &project.notes[index];
+                    let is_open = self
+                        .open_cell
+                        .as_ref()
+                        .is_some_and(|cell| cell.note_index == index);
+
+                    if ui.selectable_label(is_open, &note.name).clicked() {
+                        self.open_cell = if is_open {
+                            None
+                        } else {
+                            Some(Cell {
+                                note_index: index,
+                                mode: CellMode::Rendered,
+                            })
+                        };
                     }
                 }
             });
@@ -559,6 +621,59 @@ fn draw_cell(ui: &mut egui::Ui, project: &mut Project, cell: &mut Cell, settings
     if !link_clicked && cell.mode == CellMode::Rendered && response.clicked() {
         cell.mode = CellMode::Editing;
     }
+}
+
+/// The indices into `project.notes`, ordered per `sort` — the save file's own order for
+/// [`NoteSort::Unsorted`]. Ties within the two connections orderings break alphabetically, for a
+/// stable, predictable order.
+fn sorted_note_indices(project: &Project, sort: NoteSort) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..project.notes.len()).collect();
+
+    match sort {
+        NoteSort::Unsorted => {}
+        NoteSort::NameAscending => {
+            order.sort_by(|&a, &b| project.notes[a].name.cmp(&project.notes[b].name));
+        }
+        NoteSort::NameDescending => {
+            order.sort_by(|&a, &b| project.notes[b].name.cmp(&project.notes[a].name));
+        }
+        NoteSort::ConnectionsAscending | NoteSort::ConnectionsDescending => {
+            let counts = graph::connection_counts(project);
+            let ascending = sort == NoteSort::ConnectionsAscending;
+
+            order.sort_by(|&a, &b| {
+                let by_count = if ascending {
+                    counts[a].cmp(&counts[b])
+                } else {
+                    counts[b].cmp(&counts[a])
+                };
+                by_count.then_with(|| project.notes[a].name.cmp(&project.notes[b].name))
+            });
+        }
+    }
+
+    order
+}
+
+/// A sort-toggle button: `label` plus an up/down arrow when `current` is `ascending` or
+/// `descending`, highlighted while either is active. Returns whether it was clicked this frame.
+fn sort_button(
+    ui: &mut egui::Ui,
+    label: &str,
+    current: NoteSort,
+    ascending: NoteSort,
+    descending: NoteSort,
+) -> bool {
+    let text = if current == ascending {
+        crate::fonts::icon_label(ui, crate::fonts::icon::ARROW_UP, label)
+    } else if current == descending {
+        crate::fonts::icon_label(ui, crate::fonts::icon::ARROW_DOWN, label)
+    } else {
+        label.into()
+    };
+
+    let active = current == ascending || current == descending;
+    ui.selectable_label(active, text).clicked()
 }
 
 /// A small icon-labeled button in its own row, for switching a cell's mode (Edit/Done). Returns

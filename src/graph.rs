@@ -30,6 +30,22 @@ fn resolve_edges(project: &Project) -> Vec<Edge> {
         .collect()
 }
 
+/// The number of graph edges touching each note — its own markdown links to other notes, plus
+/// other notes' links to it — in `project.notes` order. Self-links don't count. Exposed for the
+/// note list sidebar's "sort by connections" option.
+pub fn connection_counts(project: &Project) -> Vec<usize> {
+    let edges = resolve_edges(project);
+
+    (0..project.notes.len())
+        .map(|i| {
+            edges
+                .iter()
+                .filter(|edge| edge.from != edge.to && (edge.from == i || edge.to == i))
+                .count()
+        })
+        .collect()
+}
+
 /// A node's physics state: where it is and how fast it's moving.
 struct NodeState {
     pos: Pos2,
