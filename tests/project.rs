@@ -4,7 +4,7 @@ use my_story_notes::markdown;
 
 #[test]
 fn example_project_has_no_empty_notes() {
-    let project = common::example_project();
+    let project = common::fixture("example-project.mystorynotes");
 
     assert!(!project.notes.is_empty());
     for note in &project.notes {

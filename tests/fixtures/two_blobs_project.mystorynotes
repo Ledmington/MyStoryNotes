@@ -1,0 +1,31 @@
+[[notes]]
+name = "A1"
+source = "Linked to [A2](A2), [A3](A3), [A4](A4)."
+
+[[notes]]
+name = "A2"
+source = "Linked to [A1](A1), [A3](A3), [A4](A4)."
+
+[[notes]]
+name = "A3"
+source = "Linked to [A1](A1), [A2](A2), [A4](A4)."
+
+[[notes]]
+name = "A4"
+source = "Linked to [A1](A1), [A2](A2), [A3](A3)."
+
+[[notes]]
+name = "B1"
+source = "Linked to [B2](B2), [B3](B3), [B4](B4)."
+
+[[notes]]
+name = "B2"
+source = "Linked to [B1](B1), [B3](B3), [B4](B4)."
+
+[[notes]]
+name = "B3"
+source = "Linked to [B1](B1), [B2](B2), [B4](B4)."
+
+[[notes]]
+name = "B4"
+source = "Linked to [B1](B1), [B2](B2), [B3](B3)."

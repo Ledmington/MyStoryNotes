@@ -583,6 +583,24 @@ fn declutter(rects: &mut [Rect]) {
     }
 }
 
+/// Runs the force-directed layout for every note in `project`, from a fresh [`Simulation`], until
+/// it settles (see [`Simulation::step`]) or a generous step budget elapses, and returns each
+/// note's final world-space position in `project.notes` order. Exposed so the physics [`draw`]
+/// relies on can be exercised in tests without a live `egui::Ui`.
+pub fn settle(project: &Project) -> Vec<Pos2> {
+    let edges = resolve_edges(project);
+    let mut sim = Simulation::new();
+    sim.sync(&project.notes, &edges);
+
+    for _ in 0..1800 {
+        if !sim.step(&project.notes, &edges, 1.0 / 60.0) {
+            break;
+        }
+    }
+
+    sim.positions(&project.notes)
+}
+
 /// Draws the whole project as a graph: one rectangle per note, one line per markdown link
 /// between notes. `open_note`'s outgoing links (and the node itself) are highlighted in the
 /// palette's accent color. `sim` carries the real-time physics state across frames and `view`

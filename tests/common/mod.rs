@@ -6,12 +6,6 @@ use std::path::{Path, PathBuf};
 
 use my_story_notes::project::Project;
 
-/// Loads the sample project the README points people to for opening in the app — reused here as
-/// a realistic, richly cross-linked fixture.
-pub fn example_project() -> Project {
-    fixture("example-project.mystorynotes")
-}
-
 /// Loads a fixture file by name from `tests/fixtures/`, e.g. `fixture("empty_project.mystorynotes")`.
 pub fn fixture(name: &str) -> Project {
     load(manifest_dir().join("tests/fixtures").join(name))
