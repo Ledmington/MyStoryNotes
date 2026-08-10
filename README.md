@@ -64,8 +64,9 @@ copied anywhere and run on its own.
   open; click any node to open that note.
 
 An example project with sample notes is included at
-[`example-project.mystorynotes`](example-project.mystorynotes) — open it
-from the app to see the format and the graph view in action.
+[`tests/fixtures/example-project.mystorynotes`](tests/fixtures/example-project.mystorynotes)
+— open it from the app to see the format and the graph view in action. It
+doubles as a fixture for the integration tests (see Development below).
 
 ## Project file format
 
@@ -84,6 +85,11 @@ cargo test                # run the test suite
 cargo clippy --all-targets --all-features   # lint
 cargo fmt                 # format
 ```
+
+`cargo test` runs both unit tests (next to the code they test) and the
+integration tests under [`tests/`](tests), which exercise the app through
+its public API using fixture project files from
+[`tests/fixtures/`](tests/fixtures).
 
 See [`CLAUDE.md`](CLAUDE.md) for the project's requirements and code style
 guidelines.

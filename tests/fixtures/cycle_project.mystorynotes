@@ -1,0 +1,11 @@
+[[notes]]
+name = "A"
+source = "Links to [B](B)."
+
+[[notes]]
+name = "B"
+source = "Links to [C](C)."
+
+[[notes]]
+name = "C"
+source = "Links to [A](A)."

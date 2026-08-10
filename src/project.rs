@@ -100,18 +100,3 @@ impl Project {
             .ok_or_else(|| io::Error::other("Created note could not be found"))
     }
 }
-
-#[cfg(test)]
-mod scratch_verify {
-    use super::*;
-
-    #[test]
-    fn example_project_parses() {
-        let project = Project::open(PathBuf::from("example-project.mystorynotes")).unwrap();
-        assert_eq!(project.notes.len(), 18);
-        for note in &project.notes {
-            assert!(!note.name.is_empty());
-            assert!(!note.source.is_empty());
-        }
-    }
-}

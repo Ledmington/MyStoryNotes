@@ -930,9 +930,10 @@ mod tests {
         // magnitude clamp, and no normalization by how many neighbors it was spread across — so a
         // single well-linked hub note was enough to pump in more energy than damping could remove
         // and the whole graph expanded without ever settling.
-        let project =
-            crate::project::Project::open(std::path::PathBuf::from("example-project.mystorynotes"))
-                .unwrap();
+        let project = crate::project::Project::open(std::path::PathBuf::from(
+            "tests/fixtures/example-project.mystorynotes",
+        ))
+        .unwrap();
         let edges = resolve_edges(&project);
 
         let mut sim = Simulation::new();

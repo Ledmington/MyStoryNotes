@@ -1,10 +1,4 @@
-mod app;
-mod fonts;
-mod graph;
-mod logging;
-mod markdown;
-mod project;
-mod settings;
+use eframe::egui;
 
 fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
@@ -15,6 +9,6 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "MyStoryNotes",
         options,
-        Box::new(|cc| Ok(Box::new(app::App::new(cc)))),
+        Box::new(|cc| Ok(Box::new(my_story_notes::app::App::new(cc)))),
     )
 }
