@@ -256,12 +256,12 @@ const MAX_DT: f32 = 1.0 / 20.0;
 
 /// Equilibrium distance and well depth for two notes with no link between them: a long distance
 /// and a shallow well, just enough to stop disconnected nodes drifting apart forever.
-const R_WEAK: f32 = 300.0;
+const R_WEAK: f32 = 200.0;
 const EPS_WEAK: f32 = 600.0;
 
 /// Equilibrium distance and well depth for two linked notes: noticeably closer and a much deeper
 /// well, so connected notes visibly cluster together.
-const R_STRONG: f32 = 140.0;
+const R_STRONG: f32 = 100.0;
 const EPS_STRONG: f32 = 6_000.0;
 
 /// How strongly a node's outgoing edges push each other apart angularly.
@@ -271,9 +271,12 @@ const MIN_ANGLE: f32 = 0.05;
 /// Fraction of velocity lost per second, applied as `exp(-DAMPING_RATE * dt)`.
 const DAMPING_RATE: f32 = 3.0;
 
-/// Weak pull toward the origin so the whole graph doesn't slowly drift off-canvas; the
-/// Lennard-Jones forces above are all relative/pairwise and have no absolute anchor.
-const CENTERING: f32 = 0.4;
+/// Pull toward the origin, both to keep the whole graph from slowly drifting off-canvas (the
+/// Lennard-Jones forces above are all relative/pairwise and have no absolute anchor) and to bound
+/// the graph's overall footprint — declutter's rectangle spacing, not the LJ equilibrium
+/// distances, is usually what actually keeps nearby notes apart, so this is the more reliable
+/// lever for the graph's overall size.
+const CENTERING: f32 = 0.8;
 
 /// Below this squared speed a node is considered settled.
 const REST_VELOCITY_SQ: f32 = 4.0;
