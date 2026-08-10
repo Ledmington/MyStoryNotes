@@ -422,7 +422,16 @@ impl eframe::App for App {
                     }
                 });
 
-            draw_cell(ui, project, cell, &self.settings);
+            // The note's width is capped to the smaller of what the graph panel actually leaves
+            // it and half the window, so it can still shrink below half (as the graph panel
+            // grows) but never grow past it. `Ui::set_max_width` sets an exact width rather than
+            // an upper bound, so that smaller value has to be computed ourselves first.
+            let half_window_width = ui.ctx().input(|input| input.viewport_rect().width()) * 0.5;
+            let max_note_width = ui.available_width().min(half_window_width);
+            ui.scope(|ui| {
+                ui.set_max_width(max_note_width);
+                draw_cell(ui, project, cell, &self.settings);
+            });
         });
 
         self.draw_notifications(ui.ctx());
@@ -437,7 +446,7 @@ fn draw_cell(ui: &mut egui::Ui, project: &mut Project, cell: &mut Cell, settings
     let response = egui::Frame::group(ui.style())
         .show(ui, |ui| match cell.mode {
             CellMode::Rendered => {
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                ui.horizontal(|ui| {
                     let label = crate::fonts::icon_label(ui, crate::fonts::icon::PENCIL, "Edit");
 
                     if ui.small_button(label).clicked() {
@@ -464,7 +473,7 @@ fn draw_cell(ui: &mut egui::Ui, project: &mut Project, cell: &mut Cell, settings
             }
 
             CellMode::Editing => {
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                ui.horizontal(|ui| {
                     let label = crate::fonts::icon_label(ui, crate::fonts::icon::CHECK, "Done");
 
                     if ui.small_button(label).clicked() {
