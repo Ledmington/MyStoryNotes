@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet, VecDeque, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
 
 use eframe::egui;
-use egui::{Color32, Id, Pos2, Rect, Sense, Stroke, StrokeKind, TextStyle, Ui, Vec2};
+use egui::{Color32, FontId, Id, Pos2, Rect, Sense, Stroke, StrokeKind, TextStyle, Ui, Vec2};
 
 use crate::fonts::{self, icon};
 use crate::markdown;
@@ -609,36 +609,128 @@ pub fn draw(
     let positions = sim.positions(&project.notes);
     let centroid = average(&positions);
 
-    let text_color = settings::rgb(palette.text);
-    let node_fill = mix(settings::rgb(palette.panel_background), text_color, 0.12);
-    let edge_color = mix(settings::rgb(palette.panel_background), text_color, 0.4);
-    let accent = settings::rgb(palette.accent);
+    let colors = Colors::from_palette(palette);
     let font_id = TextStyle::Body.resolve(ui.style());
-
-    let mut clicked = None;
-
-    let galleys: Vec<_> = project
-        .notes
-        .iter()
-        .map(|note| {
-            ui.painter()
-                .layout_no_wrap(note.name.clone(), font_id.clone(), text_color)
-        })
-        .collect();
-
-    let mut rects: Vec<Rect> = galleys
-        .iter()
-        .zip(&positions)
-        .map(|(galley, &center)| {
-            Rect::from_center_size(center, galley.size() + Vec2::new(24.0, 16.0))
-        })
-        .collect();
-
+    let mut rects = note_rects(ui, project, &positions, &font_id, colors.text);
     declutter(&mut rects);
 
     let (response, painter) = ui.allocate_painter(ui.available_size(), Sense::click_and_drag());
     let canvas_rect = response.rect;
 
+    handle_camera_input(ui, &response, view);
+
+    // Zoom is read only after `handle_camera_input` above so a scroll this frame is reflected in
+    // this same frame's stroke widths and font size, not delayed by one frame.
+    let style = Style {
+        colors,
+        font_id,
+        zoom: view.zoom,
+    };
+
+    let segments = edge_segments(&edges, &rects, canvas_rect, view);
+    let hovered_edge = find_hovered_edge(&response, &segments);
+    let highlight = Highlight {
+        open_note,
+        hovered_edge,
+        edges: &edges,
+    };
+
+    draw_edges(&painter, &segments, &highlight, &style);
+
+    let screen_rects: Vec<Rect> = rects
+        .iter()
+        .map(|rect| {
+            Rect::from_min_max(
+                to_screen(canvas_rect, view, rect.min),
+                to_screen(canvas_rect, view, rect.max),
+            )
+        })
+        .collect();
+
+    let clicked = draw_nodes(ui, &painter, project, &screen_rects, &highlight, &style);
+
+    draw_view_controls(ui, canvas_rect, view, centroid);
+
+    clicked
+}
+
+/// Palette-derived colors, reused across every edge and node drawn this frame.
+struct Colors {
+    text: Color32,
+    node_fill: Color32,
+    edge: Color32,
+    accent: Color32,
+}
+
+impl Colors {
+    fn from_palette(palette: &UiPalette) -> Self {
+        let text = settings::rgb(palette.text);
+        Self {
+            node_fill: mix(settings::rgb(palette.panel_background), text, 0.12),
+            edge: mix(settings::rgb(palette.panel_background), text, 0.4),
+            accent: settings::rgb(palette.accent),
+            text,
+        }
+    }
+}
+
+/// Everything about *how* the graph is drawn this frame — palette colors, the label font, and the
+/// camera's current zoom (for scaling stroke widths, rounding, and font size) — as opposed to
+/// *what* is drawn.
+struct Style {
+    colors: Colors,
+    font_id: FontId,
+    zoom: f32,
+}
+
+/// World-space bounding rectangles for each note's label, centered on `positions`. Overlaps are
+/// possible at this point — [`declutter`] resolves them afterwards.
+fn note_rects(
+    ui: &Ui,
+    project: &Project,
+    positions: &[Pos2],
+    font_id: &FontId,
+    text_color: Color32,
+) -> Vec<Rect> {
+    project
+        .notes
+        .iter()
+        .zip(positions)
+        .map(|(note, &center)| {
+            let galley =
+                ui.painter()
+                    .layout_no_wrap(note.name.clone(), font_id.clone(), text_color);
+            Rect::from_center_size(center, galley.size() + Vec2::new(24.0, 16.0))
+        })
+        .collect()
+}
+
+/// What should currently be drawn as highlighted: `open_note`'s node and outgoing edges, plus
+/// whichever edge (if any) the mouse is hovering and that edge's two endpoint nodes.
+struct Highlight<'a> {
+    open_note: Option<usize>,
+    hovered_edge: Option<usize>,
+    edges: &'a [Edge],
+}
+
+impl Highlight<'_> {
+    /// Whether the edge at `index` should be drawn highlighted.
+    fn is_edge(&self, index: usize) -> bool {
+        self.open_note == Some(self.edges[index].from) || self.hovered_edge == Some(index)
+    }
+
+    /// Whether the note at `index` should be drawn highlighted.
+    fn is_node(&self, index: usize) -> bool {
+        let is_hovered_endpoint = self.hovered_edge.is_some_and(|hovered| {
+            self.edges[hovered].from == index || self.edges[hovered].to == index
+        });
+        self.open_note == Some(index) || is_hovered_endpoint
+    }
+}
+
+/// Applies this frame's drag (pan) and scroll-wheel (zoom, anchored to the cursor) input to
+/// `view`.
+fn handle_camera_input(ui: &Ui, response: &egui::Response, view: &mut View) {
     if response.dragged() {
         view.center -= response.drag_delta() / view.zoom;
     }
@@ -647,63 +739,101 @@ pub fn draw(
         let scroll = ui.input(|input| input.smooth_scroll_delta.y);
         if scroll != 0.0 {
             let factor = (scroll * ZOOM_WHEEL_SENSITIVITY).exp();
-            zoom_at(view, hover_pos, canvas_rect.center(), factor);
+            zoom_at(view, hover_pos, response.rect.center(), factor);
         }
     }
+}
 
-    let to_screen = |world: Pos2| canvas_rect.center() + (world - view.center) * view.zoom;
+/// Projects a world-space point to screen space, for the given camera and canvas rect.
+fn to_screen(canvas_rect: Rect, view: &View, world: Pos2) -> Pos2 {
+    canvas_rect.center() + (world - view.center) * view.zoom
+}
 
-    let edge_segments: Vec<[Pos2; 2]> = edges
+/// Each edge's two endpoints (note centers), projected to screen space.
+fn edge_segments(edges: &[Edge], rects: &[Rect], canvas_rect: Rect, view: &View) -> Vec<[Pos2; 2]> {
+    edges
         .iter()
         .map(|edge| {
             [
-                to_screen(rects[edge.from].center()),
-                to_screen(rects[edge.to].center()),
+                to_screen(canvas_rect, view, rects[edge.from].center()),
+                to_screen(canvas_rect, view, rects[edge.to].center()),
             ]
         })
-        .collect();
+        .collect()
+}
 
-    let hovered_edge = response.hover_pos().and_then(|pos| {
-        edge_segments
-            .iter()
-            .enumerate()
-            .map(|(index, &[a, b])| (index, distance_to_segment(pos, a, b)))
-            .filter(|&(_, distance)| distance <= EDGE_HOVER_RADIUS)
-            .min_by(|a, b| a.1.total_cmp(&b.1))
-            .map(|(index, _)| index)
-    });
+/// The index of the edge closest to the mouse, if any is within [`EDGE_HOVER_RADIUS`] of it.
+fn find_hovered_edge(response: &egui::Response, segments: &[[Pos2; 2]]) -> Option<usize> {
+    let pos = response.hover_pos()?;
 
-    for (index, edge) in edges.iter().enumerate() {
-        let highlighted = open_note == Some(edge.from) || hovered_edge == Some(index);
-        let color = if highlighted { accent } else { edge_color };
+    segments
+        .iter()
+        .enumerate()
+        .map(|(index, &[a, b])| (index, distance_to_segment(pos, a, b)))
+        .filter(|&(_, distance)| distance <= EDGE_HOVER_RADIUS)
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(index, _)| index)
+}
+
+/// Draws every edge as a line, highlighted (in the accent color, thicker) per `highlight`.
+fn draw_edges(
+    painter: &egui::Painter,
+    segments: &[[Pos2; 2]],
+    highlight: &Highlight,
+    style: &Style,
+) {
+    for (index, &segment) in segments.iter().enumerate() {
+        let highlighted = highlight.is_edge(index);
+        let color = if highlighted {
+            style.colors.accent
+        } else {
+            style.colors.edge
+        };
         let width = if highlighted { 2.5 } else { 1.0 };
 
-        painter.line_segment(edge_segments[index], Stroke::new(width * view.zoom, color));
+        painter.line_segment(segment, Stroke::new(width * style.zoom, color));
     }
+}
 
-    for (index, rect) in rects.iter().enumerate() {
-        let screen_rect = Rect::from_min_max(to_screen(rect.min), to_screen(rect.max));
-        let is_hovered_endpoint = hovered_edge
-            .is_some_and(|hovered| edges[hovered].from == index || edges[hovered].to == index);
-        let highlighted = open_note == Some(index) || is_hovered_endpoint;
-        let border = if highlighted { accent } else { edge_color };
+/// Draws every note as a rounded rectangle with its name centered inside, highlighted per
+/// `highlight`. Returns the index of a note clicked this frame, if any.
+fn draw_nodes(
+    ui: &mut Ui,
+    painter: &egui::Painter,
+    project: &Project,
+    screen_rects: &[Rect],
+    highlight: &Highlight,
+    style: &Style,
+) -> Option<usize> {
+    let mut clicked = None;
+
+    for (index, &screen_rect) in screen_rects.iter().enumerate() {
+        let highlighted = highlight.is_node(index);
+        let border = if highlighted {
+            style.colors.accent
+        } else {
+            style.colors.edge
+        };
 
         painter.rect(
             screen_rect,
-            4.0 * view.zoom,
-            node_fill,
-            Stroke::new(if highlighted { 2.0 } else { 1.0 } * view.zoom, border),
+            4.0 * style.zoom,
+            style.colors.node_fill,
+            Stroke::new(if highlighted { 2.0 } else { 1.0 } * style.zoom, border),
             StrokeKind::Outside,
         );
 
-        let mut scaled_font = font_id.clone();
-        scaled_font.size *= view.zoom;
-        let screen_galley =
-            painter.layout_no_wrap(project.notes[index].name.clone(), scaled_font, text_color);
+        let mut scaled_font = style.font_id.clone();
+        scaled_font.size *= style.zoom;
+        let screen_galley = painter.layout_no_wrap(
+            project.notes[index].name.clone(),
+            scaled_font,
+            style.colors.text,
+        );
         painter.galley(
             screen_rect.center() - screen_galley.size() / 2.0,
             screen_galley,
-            text_color,
+            style.colors.text,
         );
 
         let response = ui
@@ -714,8 +844,6 @@ pub fn draw(
             clicked = Some(index);
         }
     }
-
-    draw_view_controls(ui, canvas_rect, view, centroid);
 
     clicked
 }
