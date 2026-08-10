@@ -19,6 +19,7 @@ pub mod icon {
     pub const PENCIL: char = '\u{f040}';
     pub const COG: char = '\u{f013}';
     pub const TIMES: char = '\u{f00d}';
+    pub const CHECK: char = '\u{f00c}';
     pub const SEARCH_PLUS: char = '\u{f00e}';
     pub const SEARCH_MINUS: char = '\u{f010}';
     pub const CROSSHAIRS: char = '\u{f05b}';

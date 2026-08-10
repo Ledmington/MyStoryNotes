@@ -464,6 +464,14 @@ fn draw_cell(ui: &mut egui::Ui, project: &mut Project, cell: &mut Cell, settings
             }
 
             CellMode::Editing => {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                    let label = crate::fonts::icon_label(ui, crate::fonts::icon::CHECK, "Done");
+
+                    if ui.small_button(label).clicked() {
+                        cell.mode = CellMode::Rendered;
+                    }
+                });
+
                 let Some(note) = project.notes.get_mut(cell.note_index) else {
                     return;
                 };
