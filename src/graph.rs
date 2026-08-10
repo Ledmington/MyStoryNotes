@@ -720,6 +720,209 @@ mod tests {
         }
     }
 
+    /// Steps `sim` until it settles, then confirms it stays put for a further window — the core
+    /// "does it converge" property every scenario below relies on. Returns the settled positions.
+    fn assert_converges(sim: &mut Simulation, notes: &[Note], edges: &[Edge]) -> Vec<Pos2> {
+        for _ in 0..1800 {
+            sim.step(notes, edges, 1.0 / 60.0);
+        }
+
+        let before = sim.positions(notes);
+
+        for _ in 0..600 {
+            sim.step(notes, edges, 1.0 / 60.0);
+        }
+
+        let after = sim.positions(notes);
+
+        let max_move = before
+            .iter()
+            .zip(&after)
+            .map(|(a, b)| (*a - *b).length())
+            .fold(0.0f32, f32::max);
+        assert!(
+            max_move < 5.0,
+            "did not converge: moved {max_move}px in a further 10s after 30s of settling"
+        );
+
+        after
+    }
+
+    /// Whether segments `(a, b)` and `(c, d)` properly cross (share no endpoint and their
+    /// interiors intersect), via the standard orientation test.
+    fn segments_cross(a: Pos2, b: Pos2, c: Pos2, d: Pos2) -> bool {
+        fn orientation(p: Pos2, q: Pos2, r: Pos2) -> f32 {
+            (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x)
+        }
+
+        let (d1, d2) = (orientation(c, d, a), orientation(c, d, b));
+        let (d3, d4) = (orientation(a, b, c), orientation(a, b, d));
+
+        (d1 > 0.0) != (d2 > 0.0) && (d3 > 0.0) != (d4 > 0.0)
+    }
+
+    /// Counts pairs of edges (with no shared endpoint) whose line segments cross, given a set of
+    /// settled positions.
+    fn count_segment_crossings(positions: &[Pos2], edges: &[Edge]) -> usize {
+        let mut crossings = 0;
+
+        for i in 0..edges.len() {
+            for edge in &edges[i + 1..] {
+                let (e1, e2) = (&edges[i], edge);
+                let shares_endpoint =
+                    e1.from == e2.from || e1.from == e2.to || e1.to == e2.from || e1.to == e2.to;
+
+                if !shares_endpoint
+                    && segments_cross(
+                        positions[e1.from],
+                        positions[e1.to],
+                        positions[e2.from],
+                        positions[e2.to],
+                    )
+                {
+                    crossings += 1;
+                }
+            }
+        }
+
+        crossings
+    }
+
+    #[test]
+    fn two_connected_nodes_converge_close_together() {
+        let notes = vec![note("A"), note("B")];
+        let edges = vec![Edge { from: 0, to: 1 }];
+
+        let mut sim = Simulation::new();
+        sim.sync(&notes, &edges);
+        let positions = assert_converges(&mut sim, &notes, &edges);
+
+        let separation = (positions[0] - positions[1]).length();
+        assert!(
+            separation.is_finite() && separation > MIN_DIST,
+            "nodes collapsed onto each other: {separation}px apart"
+        );
+    }
+
+    #[test]
+    fn two_unconnected_nodes_converge_farther_apart_than_two_connected_ones() {
+        let notes = vec![note("A"), note("B")];
+
+        let mut connected_sim = Simulation::new();
+        let connected_edges = vec![Edge { from: 0, to: 1 }];
+        connected_sim.sync(&notes, &connected_edges);
+        let connected_positions = assert_converges(&mut connected_sim, &notes, &connected_edges);
+        let connected_separation = (connected_positions[0] - connected_positions[1]).length();
+
+        let mut unconnected_sim = Simulation::new();
+        let unconnected_edges: Vec<Edge> = vec![];
+        unconnected_sim.sync(&notes, &unconnected_edges);
+        let unconnected_positions =
+            assert_converges(&mut unconnected_sim, &notes, &unconnected_edges);
+        let unconnected_separation = (unconnected_positions[0] - unconnected_positions[1]).length();
+
+        assert!(
+            unconnected_separation > connected_separation,
+            "unconnected nodes ({unconnected_separation}px apart) should settle farther apart than connected ones ({connected_separation}px apart)"
+        );
+    }
+
+    #[test]
+    fn a_cycle_converges_with_no_crossings_and_connected_pairs_closer_on_average() {
+        // A 6-node ring: every node is connected to exactly its two neighbors in the cycle, and
+        // unconnected to the other three. A ring can always be drawn with no crossing edges, so
+        // the settled layout should have none, and the six ring edges should average a shorter
+        // distance than the nine non-edges.
+        let notes: Vec<Note> = (0..6).map(|i| note(&format!("N{i}"))).collect();
+        let edges: Vec<Edge> = (0..6)
+            .map(|i| Edge {
+                from: i,
+                to: (i + 1) % 6,
+            })
+            .collect();
+
+        let mut sim = Simulation::new();
+        sim.sync(&notes, &edges);
+        let positions = assert_converges(&mut sim, &notes, &edges);
+
+        assert_eq!(
+            count_segment_crossings(&positions, &edges),
+            0,
+            "a ring should always be drawable with no crossing edges"
+        );
+
+        let connected: HashSet<(usize, usize)> = edges
+            .iter()
+            .map(|edge| (edge.from.min(edge.to), edge.from.max(edge.to)))
+            .collect();
+
+        let mut connected_total = 0.0;
+        let mut unconnected_total = 0.0;
+        let mut unconnected_count = 0;
+
+        for i in 0..6 {
+            for j in (i + 1)..6 {
+                let distance = (positions[i] - positions[j]).length();
+                if connected.contains(&(i, j)) {
+                    connected_total += distance;
+                } else {
+                    unconnected_total += distance;
+                    unconnected_count += 1;
+                }
+            }
+        }
+
+        let connected_avg = connected_total / edges.len() as f32;
+        let unconnected_avg = unconnected_total / unconnected_count as f32;
+
+        assert!(
+            connected_avg < unconnected_avg,
+            "connected pairs should average closer together: connected_avg={connected_avg}, unconnected_avg={unconnected_avg}"
+        );
+    }
+
+    #[test]
+    fn star_configuration_converges_without_exploding() {
+        // A minimal, isolated reproduction of the real bug this simulation used to have: a hub
+        // linked out to several leaves. The angular-balance force used to have no distance
+        // falloff, clamp, or degree normalization, so this shape alone was enough to make the
+        // whole graph expand forever instead of settling.
+        let notes: Vec<Note> = (0..6).map(|i| note(&format!("N{i}"))).collect();
+        let edges: Vec<Edge> = (1..6).map(|i| Edge { from: 0, to: i }).collect();
+
+        let mut sim = Simulation::new();
+        sim.sync(&notes, &edges);
+        let positions = assert_converges(&mut sim, &notes, &edges);
+
+        let hub = positions[0];
+        let leaves = &positions[1..];
+
+        let hub_leaf_avg: f32 = leaves
+            .iter()
+            .map(|leaf| (*leaf - hub).length())
+            .sum::<f32>()
+            / leaves.len() as f32;
+
+        let mut leaf_leaf_total = 0.0;
+        let mut leaf_leaf_count = 0;
+        for i in 0..leaves.len() {
+            for j in (i + 1)..leaves.len() {
+                leaf_leaf_total += (leaves[i] - leaves[j]).length();
+                leaf_leaf_count += 1;
+            }
+        }
+        let leaf_leaf_avg = leaf_leaf_total / leaf_leaf_count as f32;
+
+        assert!(
+            hub_leaf_avg.is_finite() && hub_leaf_avg < 5000.0,
+            "hub and leaves settled implausibly far apart: {hub_leaf_avg}px"
+        );
+        assert!(
+            hub_leaf_avg < leaf_leaf_avg,
+            "connected hub-leaf pairs should average closer together than unconnected leaf-leaf pairs: hub_leaf_avg={hub_leaf_avg}, leaf_leaf_avg={leaf_leaf_avg}"
+        );
+    }
+
     #[test]
     fn simulation_settles_for_the_example_project() {
         // Regression test for a real bug: the example project's "Overview" note links out to
