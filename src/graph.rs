@@ -173,6 +173,17 @@ impl Simulation {
             *force -= position.to_vec2() * CENTERING;
         }
 
+        // Each individual force above is already capped, but a node with many close neighbors
+        // (e.g. a hub with several outgoing edges) can still accumulate a huge *sum* of otherwise
+        // reasonable contributions. Cap the total too, so one node's degree can never translate
+        // into an unbounded single-frame kick.
+        for force in &mut forces {
+            let len = force.length();
+            if len > MAX_FORCE {
+                *force *= MAX_FORCE / len;
+            }
+        }
+
         let damping = (-DAMPING_RATE * dt).exp();
         let mut moving = false;
 
@@ -222,7 +233,7 @@ const DAMPING_RATE: f32 = 3.0;
 
 /// Weak pull toward the origin so the whole graph doesn't slowly drift off-canvas; the
 /// Lennard-Jones forces above are all relative/pairwise and have no absolute anchor.
-const CENTERING: f32 = 0.02;
+const CENTERING: f32 = 0.4;
 
 /// Below this squared speed a node is considered settled.
 const REST_VELOCITY_SQ: f32 = 4.0;
@@ -266,6 +277,12 @@ fn add_angular_balance_forces(positions: &[Pos2], edges: &[Edge], forces: &mut [
     }
 
     for (center, neighbors) in outgoing.iter().enumerate() {
+        // A node with `k` outgoing edges produces C(k, 2) pairs, and each neighbor sits in `k -
+        // 1` of them; without normalizing by that, a highly-linked hub would push its whole
+        // neighborhood out much harder than a hub with only two or three links, purely because it
+        // has more pairs to sum, not because any single pair is more crowded.
+        let pairs_per_neighbor = (neighbors.len() as f32 - 1.0).max(1.0);
+
         for a in 0..neighbors.len() {
             for b in (a + 1)..neighbors.len() {
                 let (i, j) = (neighbors[a], neighbors[b]);
@@ -286,8 +303,17 @@ fn add_angular_balance_forces(positions: &[Pos2], edges: &[Edge], forces: &mut [
                     continue;
                 }
 
-                let magnitude =
+                // Fades out as the neighbors get farther from `center`, same as the LJ forces
+                // above: without this, the force stays at full strength no matter how large the
+                // graph has already grown, which is enough on its own to pump in more energy than
+                // damping can remove and make the whole graph expand without bound.
+                let avg_len = (len_i + len_j) * 0.5;
+                let falloff = (R_STRONG / avg_len).min(1.0);
+
+                let raw_magnitude =
                     ANGULAR_REPULSION * (1.0 / theta.max(MIN_ANGLE) - 1.0 / std::f32::consts::PI);
+                let magnitude =
+                    (raw_magnitude * falloff / pairs_per_neighbor).clamp(0.0, MAX_FORCE);
                 if magnitude <= 0.0 {
                     continue;
                 }
@@ -691,6 +717,53 @@ mod tests {
 
             let attractive = lj_force(Vec2::new(r_eq * 3.0, 0.0), r_eq, epsilon);
             assert!(attractive.x < 0.0, "expected attraction above equilibrium");
+        }
+    }
+
+    #[test]
+    fn simulation_settles_for_the_example_project() {
+        // Regression test for a real bug: the example project's "Overview" note links out to
+        // eight other notes, and the angular-balance force used to have no distance falloff, no
+        // magnitude clamp, and no normalization by how many neighbors it was spread across — so a
+        // single well-linked hub note was enough to pump in more energy than damping could remove
+        // and the whole graph expanded without ever settling.
+        let project =
+            crate::project::Project::open(std::path::PathBuf::from("example-project.mystorynotes"))
+                .unwrap();
+        let edges = resolve_edges(&project);
+
+        let mut sim = Simulation::new();
+        sim.sync(&project.notes, &edges);
+
+        for _ in 0..1800 {
+            sim.step(&project.notes, &edges, 1.0 / 60.0);
+        }
+
+        // The tangential angular-balance force doesn't necessarily settle to exactly zero net
+        // torque, so a small residual drift (e.g. the whole graph slowly turning) is expected and
+        // fine; it just shouldn't still be gaining speed after 30 seconds.
+        let max_speed = project
+            .notes
+            .iter()
+            .map(|n| sim.nodes[&n.name].vel.length())
+            .fold(0.0f32, f32::max);
+        assert!(
+            max_speed < 100.0,
+            "still moving unexpectedly fast after 30s of simulated time: {max_speed}px/s"
+        );
+
+        let positions = sim.positions(&project.notes);
+        let centroid = positions
+            .iter()
+            .fold(Vec2::ZERO, |acc, p| acc + p.to_vec2())
+            / positions.len() as f32;
+
+        for pos in &positions {
+            let distance = (*pos - centroid.to_pos2()).length();
+            assert!(
+                distance < 2000.0,
+                "a node settled far from the rest of the graph: {distance}px away"
+            );
         }
     }
 
