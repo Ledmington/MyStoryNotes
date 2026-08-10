@@ -31,10 +31,19 @@ fn two_disconnected_cliques_settle_into_separate_tight_clusters() {
     let within_blob_avg = (avg_pairwise(blob_a) + avg_pairwise(blob_b)) / 2.0;
     let across_blob_avg = avg_across(blob_a, blob_b);
 
+    // A generous bound on the connected-pair equilibrium distance itself, not just its ratio to
+    // the across-blob distance: a four-note clique can't settle every pairwise distance at
+    // exactly R_STRONG (a planar clique's best case is a square, whose two diagonals are longer
+    // than its four sides), but it also shouldn't settle many times farther out than that.
     assert!(
-        within_blob_avg < across_blob_avg,
-        "notes within a blob should average closer together than notes across blobs: \
-         within={within_blob_avg}, across={across_blob_avg}"
+        within_blob_avg < 250.0,
+        "notes within a tightly-linked blob should settle close together, not balloon outward: \
+         within={within_blob_avg}"
+    );
+    assert!(
+        across_blob_avg > within_blob_avg * 1.5,
+        "notes within a blob should average noticeably closer together than notes across blobs, \
+         not just marginally: within={within_blob_avg}, across={across_blob_avg}"
     );
 }
 

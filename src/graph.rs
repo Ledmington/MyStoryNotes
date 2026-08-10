@@ -264,19 +264,26 @@ const EPS_WEAK: f32 = 600.0;
 const R_STRONG: f32 = 100.0;
 const EPS_STRONG: f32 = 6_000.0;
 
-/// How strongly a node's outgoing edges push each other apart angularly.
-const ANGULAR_REPULSION: f32 = 4_000.0;
+/// How strongly a node's outgoing edges push each other apart angularly. Kept low: in a densely
+/// mutual-linked cluster every note acts as a "hub" to its neighbors at once, so this force
+/// compounds fast — at the previous value (4000) a 4-note clique settled at ~7x its intended
+/// [`R_STRONG`] separation instead of the ~1.14x a planar clique's geometry actually requires (a
+/// square's diagonals are unavoidably longer than its sides). A value this low needs the higher
+/// [`DAMPING_RATE`] below to still fully settle a hub-and-spoke shape (see
+/// `star_configuration_converges_without_exploding`): with less angular force pushing a hub's
+/// spokes into a stable fan, they otherwise land in a slow, never-quite-stopping rotation instead
+/// of a fixed point.
+const ANGULAR_REPULSION: f32 = 200.0;
 const MIN_ANGLE: f32 = 0.05;
 
-/// Fraction of velocity lost per second, applied as `exp(-DAMPING_RATE * dt)`.
-const DAMPING_RATE: f32 = 3.0;
+/// Fraction of velocity lost per second, applied as `exp(-DAMPING_RATE * dt)`. Raised alongside
+/// [`ANGULAR_REPULSION`]'s reduction (see there) to damp out the slow residual rotation a weaker
+/// angular force alone can leave a hub-and-spoke shape in.
+const DAMPING_RATE: f32 = 5.0;
 
-/// Pull toward the origin, both to keep the whole graph from slowly drifting off-canvas (the
-/// Lennard-Jones forces above are all relative/pairwise and have no absolute anchor) and to bound
-/// the graph's overall footprint — declutter's rectangle spacing, not the LJ equilibrium
-/// distances, is usually what actually keeps nearby notes apart, so this is the more reliable
-/// lever for the graph's overall size.
-const CENTERING: f32 = 0.8;
+/// Weak pull toward the origin so the whole graph doesn't slowly drift off-canvas; the
+/// Lennard-Jones forces above are all relative/pairwise and have no absolute anchor.
+const CENTERING: f32 = 0.4;
 
 /// Below this squared speed a node is considered settled.
 const REST_VELOCITY_SQ: f32 = 4.0;
