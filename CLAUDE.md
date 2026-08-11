@@ -20,6 +20,9 @@ Negotiables:
 - animations
 - pretty colors
 
+## Minimum supported Rust version
+The MSRV is 1.95.0, tracked via `rust-version` in `Cargo.toml`. CI checks both the MSRV and the latest toolchain it's pinned to (currently 1.97.0). Re-check the MSRV with `cargo msrv find` after bumping dependencies or using newer language features, and update `Cargo.toml`, this file, `README.md`, and `.github/workflows/ci.yml` together if it changes.
+
 ## Commands
 Format the code:
 ```bash

@@ -32,7 +32,8 @@ toolchain to build it from source.
 
 ### Prerequisites
 
-- Rust 1.85 or newer (this project uses the 2024 edition)
+- Rust 1.95.0 or newer (this is the minimum supported Rust version, tracked
+  via `rust-version` in `Cargo.toml`; CI also tests against 1.97.0)
 - On Linux, the usual system libraries needed to build a windowed GUI app:
   `libgtk-3-dev`, `libxkbcommon-dev`, `libx11-dev`, `libxi-dev`,
   `libxrandr-dev`, `libxcursor-dev`, `libxinerama-dev`, `libwayland-dev`,

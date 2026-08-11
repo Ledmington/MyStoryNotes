@@ -3,6 +3,7 @@ name = "my_story_notes"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
+rust-version = "1.95.0"
 
 [dependencies]
 eframe = "0.36"
