@@ -29,6 +29,7 @@ pub mod icon {
     pub const ARROW_DOWN: char = '\u{f063}';
     pub const ARROW_LEFT: char = '\u{f060}';
     pub const ARROW_RIGHT: char = '\u{f061}';
+    pub const BOOK: char = '\u{f02d}';
 }
 
 /// Registers the fonts this app bundles: a serif family (render mode) and a monospace family

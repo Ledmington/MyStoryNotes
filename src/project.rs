@@ -30,6 +30,10 @@ impl From<NoteId> for usize {
 pub struct Note {
     pub name: String,
     pub source: String,
+    /// Whether this is the project's manuscript note — see [`Project::manuscript`]. There is
+    /// only ever one per project.
+    #[serde(default)]
+    pub is_manuscript: bool,
 }
 
 /// On-disk representation of a project file.
@@ -110,6 +114,7 @@ impl Project {
         self.notes.push(Note {
             name: name.to_owned(),
             source: String::new(),
+            is_manuscript: false,
         });
 
         self.notes.sort_by(|a, b| a.name.cmp(&b.name));
@@ -119,5 +124,76 @@ impl Project {
             .position(|note| note.name == name)
             .map(NoteId::from)
             .ok_or_else(|| io::Error::other("Created note could not be found"))
+    }
+
+    /// The project's manuscript note, if it has one.
+    pub fn manuscript(&self) -> Option<NoteId> {
+        self.notes
+            .iter()
+            .position(|note| note.is_manuscript)
+            .map(NoteId::from)
+    }
+
+    /// Returns the project's manuscript note, creating it (named "Manuscript", or "Manuscript
+    /// (2)" etc. if that name is already taken by an unrelated note) if it doesn't exist yet.
+    /// There is only ever one per project.
+    pub fn get_or_create_manuscript(&mut self) -> io::Result<NoteId> {
+        if let Some(id) = self.manuscript() {
+            return Ok(id);
+        }
+
+        let mut name = "Manuscript".to_owned();
+        let mut suffix = 2;
+        while self.notes.iter().any(|note| note.name == name) {
+            name = format!("Manuscript ({suffix})");
+            suffix += 1;
+        }
+
+        let id = self.create_note(&name)?;
+        self.notes[usize::from(id)].is_manuscript = true;
+        Ok(id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn get_or_create_manuscript_creates_it_once_and_reuses_it_after() {
+        let mut project = Project::new();
+
+        let first = project.get_or_create_manuscript().unwrap();
+        assert_eq!(project.notes[usize::from(first)].name, "Manuscript");
+        assert!(project.notes[usize::from(first)].is_manuscript);
+
+        let second = project.get_or_create_manuscript().unwrap();
+        assert_eq!(first, second);
+        assert_eq!(project.notes.len(), 1);
+    }
+
+    #[test]
+    fn get_or_create_manuscript_picks_a_free_name_if_manuscript_is_taken() {
+        let mut project = Project::new();
+        project.create_note("Manuscript").unwrap();
+
+        let id = project.get_or_create_manuscript().unwrap();
+
+        assert_eq!(project.notes[usize::from(id)].name, "Manuscript (2)");
+        assert!(project.notes[usize::from(id)].is_manuscript);
+        assert_eq!(
+            project
+                .notes
+                .iter()
+                .filter(|note| note.is_manuscript)
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn manuscript_returns_none_on_a_fresh_project() {
+        let project = Project::new();
+        assert_eq!(project.manuscript(), None);
     }
 }

@@ -161,7 +161,9 @@ struct Style {
 }
 
 /// World-space bounding rectangles for each note's label, centered on `positions`. Overlaps are
-/// possible at this point — [`declutter`] resolves them afterwards.
+/// possible at this point — [`declutter`] resolves them afterwards. The manuscript note (which
+/// isn't drawn — see `draw_nodes`) gets a zero-sized rect instead of a real one, so `declutter`
+/// never pushes a real node aside to make room for a node nothing ever draws.
 fn note_rects(
     ui: &Ui,
     project: &Project,
@@ -174,6 +176,10 @@ fn note_rects(
         .iter()
         .zip(positions)
         .map(|(note, &center)| {
+            if note.is_manuscript {
+                return Rect::from_center_size(center, Vec2::ZERO);
+            }
+
             let galley =
                 ui.painter()
                     .layout_no_wrap(note.name.clone(), font_id.clone(), text_color);
@@ -311,6 +317,15 @@ fn draw_nodes(
 
     for (index, &screen_rect) in screen_rects.iter().enumerate() {
         let index = NoteId::from(index);
+
+        // The manuscript note isn't part of the graph at all (see `resolve_edges`) — it would
+        // obviously end up linked from just about every other note. Its slot in `screen_rects`
+        // is kept (zero-sized, from `note_rects`) purely so indices still line up with
+        // `project.notes`; skip drawing and hit-testing it here.
+        if project.notes[usize::from(index)].is_manuscript {
+            continue;
+        }
+
         let highlighted = highlight.is_node(index);
         let border = if highlighted {
             style.colors.accent
@@ -462,7 +477,9 @@ fn draw_view_controls(ui: &mut Ui, canvas_rect: Rect, view: &mut View, centroid:
 /// Pushes apart any node rectangles the simulation left overlapping. `Simulation::step` only
 /// reasons about points, not each note's actual label size, so long note names in a dense cluster
 /// can still end up overlapping; this guarantees every label stays readable regardless. Purely
-/// cosmetic and recomputed fresh every frame — it doesn't feed back into the simulation.
+/// cosmetic and recomputed fresh every frame — it doesn't feed back into the simulation. Skips any
+/// zero-area rect (the manuscript note's, from `note_rects` — nothing is ever drawn there), so a
+/// node nothing draws never pushes a real one aside.
 fn declutter(rects: &mut [Rect]) {
     const GAP: f32 = 12.0;
     const ITERATIONS: usize = 300;
@@ -472,6 +489,10 @@ fn declutter(rects: &mut [Rect]) {
 
         for i in 0..rects.len() {
             for j in (i + 1)..rects.len() {
+                if rects[i].area() <= 0.0 || rects[j].area() <= 0.0 {
+                    continue;
+                }
+
                 let overlap = rects[i]
                     .expand(GAP / 2.0)
                     .intersect(rects[j].expand(GAP / 2.0));

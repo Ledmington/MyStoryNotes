@@ -68,6 +68,13 @@ copied anywhere and run on its own.
   browser instead — it's just not treated as a link to another note.
 - The graph view opens alongside a note, or fills the screen when no note is
   open; click any node to open that note.
+- The **Manuscript** toolbar button opens your story's actual text — a
+  single always-available note, shown with a book icon in the sidebar. It
+  links to and from your other notes exactly like two notes link to each
+  other, e.g. `[Alice](Alice)` from within the manuscript jumps straight to
+  her note. It's deliberately left out of the graph view, though — since
+  it's likely to link to most of your notes, showing it there would just
+  clutter the graph rather than clarify it.
 
 ### Keyboard shortcuts
 

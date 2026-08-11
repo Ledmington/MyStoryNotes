@@ -130,6 +130,7 @@ mod tests {
         crate::project::Note {
             name: name.to_owned(),
             source: source.to_owned(),
+            is_manuscript: false,
         }
     }
 

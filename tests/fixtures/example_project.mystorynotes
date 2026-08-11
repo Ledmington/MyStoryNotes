@@ -21,6 +21,47 @@ See also the Timeline and the Glossary of Ostrenne-specific terms.
 """
 
 [[notes]]
+name = "Manuscript"
+source = """
+# The Cartographer's Debt
+
+## Chapter One
+
+The lamps in the [Undercroft](<Undercroft>) burned oil, not gas — the Compact's one concession to the archive's age, since a spark near ninety years of vellum was a risk nobody wanted to explain to the council. [Mira Solenne](<Mira Solenne>) had long since stopped noticing the smell. What she noticed, at a little past midnight on the fourth night of the restoration, was the seam.
+
+It ran along the western edge of the Salt Reach survey, so fine that the naphtha wash she used to lift old grime had almost carried it away too. Almost. She held the sheet to the lamp and turned it a hand's width, and the seam became a line, and the line became two surveys pretending to be one — the boundary redrawn perhaps a finger's width north, just enough to swallow the Ashenmere wells whole.
+
+She did not need to check her late mentor's fragment to know which line was older. She checked it anyway. Twice.
+
+By the time [Talos Bren](<Talos Bren>) came down to walk her back to her rooms, she had rehearsed three ways to say it and discarded all of them for something plainer.
+
+"The border survey is wrong," she said. "Not wrong — *changed*."
+
+He didn't ask which border. He didn't ask her to explain the seam, or the wash, or the eighteen years of training that told her a real survey line and a forged one feel different under a blade even when they look identical to the eye. He went very still, the way a man goes still when he already knows the shape of the thing you're about to hand him and is deciding how much of it he's allowed to admit to.
+
+"Who else has seen it," he said. Not *has anyone else seen it.* Who.
+
+"No one." She folded the fragment back into its sleeve, hands steadier than she felt. "Talos. If the [Meridian Compact](<Meridian Compact>) redrew that line—"
+
+"Then the [Salt Reach](<Salt Reach>) was never legally theirs to take," he said, finishing it for her, and the concern in his voice was wrong. Too old. Too specific, for a man who was supposed to have learned about all of this the same night she had.
+
+She let it go. For now.
+
+It was near dawn, the Undercroft empty but for the two of them and the archive's usual army of dust, when she found the letter — tucked between two restoration folders that had not been touched in a week, sealed with a mark she didn't recognize: a cartouche, empty, waiting to be filled in.
+
+*You found the seam,* it read, in a hand she didn't know. *You will find eleven more. I can show you where, one at a time, if you can be patient and I can stay hidden. Trust no one who was in [Verakiln](<Verakiln>) nine years ago. Not even the ones who saved your brother.*
+
+It was signed with the same mark as the seal. Nothing else.
+
+Mira read it twice, then a third time, and then she did the only thing that made sense to a cartographer: she started a new map, in her head, of everyone she knew who fit that one terrible line — *not even the ones who saved your brother* — and found, to her quiet horror, that the map had exactly one name on it so far, and he was standing eight feet away, watching her fold a letter he did not know existed.
+
+---
+
+*(Continues in Chapter Two — see [Act One](<Act One>) for the outlined beats this scene expands on.)*
+"""
+is_manuscript = true
+
+[[notes]]
 name = "Mira Solenne"
 source = """
 # Mira Solenne

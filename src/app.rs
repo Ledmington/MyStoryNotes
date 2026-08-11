@@ -196,6 +196,26 @@ impl App {
         }
     }
 
+    /// Opens the project's manuscript note, creating it first if this is the first time it's
+    /// been opened.
+    fn open_manuscript(&mut self) {
+        let Some(project) = &mut self.project else {
+            return;
+        };
+
+        match project.get_or_create_manuscript() {
+            Ok(note_index) => {
+                self.open_cell = Some(Cell {
+                    note_index,
+                    mode: CellMode::Rendered,
+                });
+            }
+            Err(error) => {
+                log::error!("Failed to open the manuscript: {error}");
+            }
+        }
+    }
+
     fn show_new_note_dialog(&mut self, ctx: &egui::Context) {
         if !self.new_note_dialog {
             return;
@@ -345,6 +365,19 @@ impl eframe::App for App {
 
                     ui.separator();
 
+                    let label =
+                        crate::fonts::icon_label(ui, crate::fonts::icon::BOOK, "Manuscript");
+
+                    if ui
+                        .button(label)
+                        .on_hover_text("Your story's text, linked to your notes")
+                        .clicked()
+                    {
+                        self.open_manuscript();
+                    }
+
+                    ui.separator();
+
                     let label = crate::fonts::icon_label(ui, crate::fonts::icon::SEARCH, "Search");
 
                     if ui
@@ -429,7 +462,13 @@ impl eframe::App for App {
                         .as_ref()
                         .is_some_and(|cell| cell.note_index == index);
 
-                    let response = ui.selectable_label(is_open, &note.name);
+                    let label: egui::WidgetText = if note.is_manuscript {
+                        crate::fonts::icon_label(ui, crate::fonts::icon::BOOK, &note.name)
+                    } else {
+                        note.name.clone().into()
+                    };
+
+                    let response = ui.selectable_label(is_open, label);
 
                     if response.hovered() {
                         hovered_note = Some(index);

@@ -32,18 +32,27 @@ struct Edge {
     to: NoteId,
 }
 
-/// Resolves every note's markdown links into [`Edge`]s indexing into `project.notes`.
+/// Resolves every note's markdown links into [`Edge`]s indexing into `project.notes`, excluding
+/// the manuscript note (see [`crate::project::Note::is_manuscript`]) on either end — it would
+/// otherwise dominate the graph, being linked from just about every other note. A link to or from
+/// it simply doesn't become an edge, the same as a link to a note that doesn't exist.
 fn resolve_edges(project: &Project) -> Vec<Edge> {
     project
         .notes
         .iter()
         .enumerate()
+        .filter(|(_, note)| !note.is_manuscript)
         .flat_map(|(from, note)| {
             let from = NoteId::from(from);
 
             markdown::extract_links(&note.source)
                 .into_iter()
-                .filter_map(move |target| project.notes.iter().position(|note| note.name == target))
+                .filter_map(move |target| {
+                    project
+                        .notes
+                        .iter()
+                        .position(|note| note.name == target && !note.is_manuscript)
+                })
                 .map(move |to| Edge {
                     from,
                     to: NoteId::from(to),
@@ -67,4 +76,57 @@ pub fn connection_counts(project: &Project) -> Vec<usize> {
                 .count()
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::project::Note;
+
+    fn note(name: &str, source: &str, is_manuscript: bool) -> Note {
+        Note {
+            name: name.to_owned(),
+            source: source.to_owned(),
+            is_manuscript,
+        }
+    }
+
+    #[test]
+    fn resolve_edges_excludes_the_manuscript_in_either_direction() {
+        let project = Project {
+            path: None,
+            notes: vec![
+                note(
+                    "Alice",
+                    "Linked to [Manuscript](Manuscript) and [Bob](Bob).",
+                    false,
+                ),
+                note("Bob", "", false),
+                note("Manuscript", "Mentions [Alice](Alice).", true),
+            ],
+        };
+
+        let edges = resolve_edges(&project);
+
+        assert_eq!(
+            edges.len(),
+            1,
+            "only the Alice -> Bob link should resolve to an edge"
+        );
+        assert_eq!(edges[0].from, NoteId::from(0));
+        assert_eq!(edges[0].to, NoteId::from(1));
+    }
+
+    #[test]
+    fn connection_counts_ignores_manuscript_links() {
+        let project = Project {
+            path: None,
+            notes: vec![
+                note("Alice", "[Manuscript](Manuscript)", false),
+                note("Manuscript", "[Alice](Alice)", true),
+            ],
+        };
+
+        assert_eq!(connection_counts(&project), vec![0, 0]);
+    }
 }

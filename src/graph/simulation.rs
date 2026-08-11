@@ -156,6 +156,14 @@ impl Simulation {
 
         for i in (0..n).map(NoteId::from) {
             for j in ((usize::from(i) + 1)..n).map(NoteId::from) {
+                // The manuscript note has no edges (`resolve_edges` excludes it) and also isn't
+                // drawn as a node at all, so it must not feel or exert the "weak" unconnected
+                // force either — otherwise it would silently drag every other note toward
+                // `weak_distance` of an invisible point.
+                if notes[usize::from(i)].is_manuscript || notes[usize::from(j)].is_manuscript {
+                    continue;
+                }
+
                 let (r_eq, epsilon) = if connected.contains(&(i, j)) {
                     (settings.strong_distance, settings.strong_strength)
                 } else {
@@ -366,6 +374,7 @@ mod tests {
         Note {
             name: name.to_owned(),
             source: String::new(),
+            is_manuscript: false,
         }
     }
 
@@ -526,6 +535,43 @@ mod tests {
         assert!(
             unconnected_separation > connected_separation,
             "unconnected nodes ({unconnected_separation}px apart) should settle farther apart than connected ones ({connected_separation}px apart)"
+        );
+    }
+
+    #[test]
+    fn a_manuscript_note_does_not_affect_other_notes_physics() {
+        // Differential rather than convergence-based: an isolated note under centering alone
+        // decays too slowly to cleanly "settle" within `assert_converges`'s budget, but A's
+        // trajectory should be identical whether or not an unconnected manuscript note sits
+        // right next to it (well within weak_distance, where the old unconditional weak force
+        // would have pulled strongly) — that's the property this is actually checking.
+        let settings = SimulationSettings::default();
+
+        let notes_alone = vec![note("A")];
+        let mut sim_alone = Simulation::new();
+        sim_alone.sync(&notes_alone, &[]);
+        sim_alone.nodes.get_mut("A").unwrap().pos = Pos2::new(100.0, 0.0);
+
+        let mut manuscript = note("Manuscript");
+        manuscript.is_manuscript = true;
+        let notes_with_manuscript = vec![note("A"), manuscript];
+        let mut sim_with_manuscript = Simulation::new();
+        sim_with_manuscript.sync(&notes_with_manuscript, &[]);
+        sim_with_manuscript.nodes.get_mut("A").unwrap().pos = Pos2::new(100.0, 0.0);
+        sim_with_manuscript.nodes.get_mut("Manuscript").unwrap().pos = Pos2::new(150.0, 0.0);
+
+        for _ in 0..120 {
+            sim_alone.step(&notes_alone, &[], 1.0 / 60.0, &settings);
+            sim_with_manuscript.step(&notes_with_manuscript, &[], 1.0 / 60.0, &settings);
+        }
+
+        let pos_alone = sim_alone.nodes["A"].pos;
+        let pos_with_manuscript = sim_with_manuscript.nodes["A"].pos;
+
+        assert!(
+            (pos_alone - pos_with_manuscript).length() < 0.01,
+            "a nearby manuscript note should not perturb another note's physics at all: \
+             {pos_alone:?} (alone) vs {pos_with_manuscript:?} (with manuscript)"
         );
     }
 
