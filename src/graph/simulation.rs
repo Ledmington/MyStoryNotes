@@ -1,5 +1,4 @@
-use std::collections::{HashMap, HashSet, hash_map::DefaultHasher};
-use std::hash::{Hash, Hasher};
+use std::collections::{HashMap, HashSet};
 
 use egui::{Pos2, Vec2};
 
@@ -27,12 +26,17 @@ struct NodeState {
 }
 
 /// Persistent per-note physics state for the real-time graph view. Positions and velocities
-/// survive across frames and are keyed by note name (stable across [`Project::create_note`]'s
-/// re-sorting, unlike a note's index) rather than reset on every draw. Own one of these for as
-/// long as the graph view should keep animating; call `Simulation::step` once per frame.
+/// survive across frames, keyed by note name (stable across [`Project::create_note`]'s
+/// re-sorting, unlike a note's index), for as long as the graph's structure doesn't change —
+/// see `Simulation::sync`. Own one of these for as long as the graph view should keep
+/// animating; call `Simulation::step` once per frame.
 #[derive(Default)]
 pub struct Simulation {
     nodes: HashMap<String, NodeState>,
+    /// Every edge as of the last `sync` call, as a pair of note names (stable across
+    /// [`Project::create_note`]'s re-sorting, unlike [`NoteId`]) rather than [`Edge`] itself —
+    /// compared on the next call purely to detect whether the edge set has changed.
+    known_edges: HashSet<(String, String)>,
 }
 
 impl Simulation {
@@ -41,87 +45,46 @@ impl Simulation {
         Self::default()
     }
 
-    /// Drops entries for notes that no longer exist and adds entries for new ones. If every note
-    /// turns out to be new (the very first call, or after switching to an entirely different
-    /// project) all of them are seeded at once from [`initial_layout`]; otherwise each new note
-    /// is placed near its already-positioned linked neighbors (or the graph's centroid, if it has
-    /// none) so the rest of the graph doesn't jump.
+    /// Recomputes every note's position from scratch via [`initial_layout`] whenever the set of
+    /// notes, or the set of links between them, has changed since the last call (including the
+    /// very first) — since minimizing edge crossings depends on the whole edge set, not just
+    /// whatever changed. Leaves positions and velocities untouched otherwise. Edges are compared
+    /// by note name rather than [`NoteId`] (as with [`Self::nodes`]' keys), so renaming a note
+    /// also counts as a change, same as adding or removing one — a rename doesn't move that
+    /// note's [`NoteId`], but it does change every edge naming it.
     pub(super) fn sync(&mut self, notes: &[Note], edges: &[Edge]) {
-        self.nodes
-            .retain(|name, _| notes.iter().any(|note| &note.name == name));
-
-        let new_ids: Vec<NoteId> = (0..notes.len())
-            .map(NoteId::from)
-            .filter(|&id| !self.nodes.contains_key(&notes[usize::from(id)].name))
+        let current_edges: HashSet<(String, String)> = edges
+            .iter()
+            .map(|edge| {
+                (
+                    notes[usize::from(edge.from)].name.clone(),
+                    notes[usize::from(edge.to)].name.clone(),
+                )
+            })
             .collect();
 
-        if new_ids.is_empty() {
-            return;
-        }
-
-        if new_ids.len() == notes.len() {
-            for (note, pos) in notes.iter().zip(initial_layout(notes.len(), edges)) {
-                self.nodes.insert(
-                    note.name.clone(),
-                    NodeState {
-                        pos,
-                        vel: Vec2::ZERO,
-                    },
-                );
-            }
-            return;
-        }
-
-        let centroid = self.centroid(notes);
-
-        for &id in &new_ids {
-            let linked_neighbors: Vec<Pos2> = edges
+        let notes_changed = notes.len() != self.nodes.len()
+            || notes
                 .iter()
-                .filter(|edge| edge.from == id || edge.to == id)
-                .filter_map(|edge| {
-                    let other = if edge.from == id { edge.to } else { edge.from };
-                    self.nodes
-                        .get(&notes[usize::from(other)].name)
-                        .map(|state| state.pos)
+                .any(|note| !self.nodes.contains_key(&note.name));
+
+        if notes_changed || current_edges != self.known_edges {
+            self.nodes = notes
+                .iter()
+                .zip(initial_layout(notes.len(), edges))
+                .map(|(note, pos)| {
+                    (
+                        note.name.clone(),
+                        NodeState {
+                            pos,
+                            vel: Vec2::ZERO,
+                        },
+                    )
                 })
                 .collect();
-
-            let base = if linked_neighbors.is_empty() {
-                centroid
-            } else {
-                let sum = linked_neighbors
-                    .iter()
-                    .fold(Vec2::ZERO, |acc, pos| acc + pos.to_vec2());
-                (sum / linked_neighbors.len() as f32).to_pos2()
-            };
-
-            let pos = base + deterministic_offset(&notes[usize::from(id)].name);
-            self.nodes.insert(
-                notes[usize::from(id)].name.clone(),
-                NodeState {
-                    pos,
-                    vel: Vec2::ZERO,
-                },
-            );
-        }
-    }
-
-    /// The average position of every currently-positioned note; the origin if there are none.
-    fn centroid(&self, notes: &[Note]) -> Pos2 {
-        let positioned: Vec<Pos2> = notes
-            .iter()
-            .filter_map(|note| self.nodes.get(&note.name))
-            .map(|state| state.pos)
-            .collect();
-
-        if positioned.is_empty() {
-            return Pos2::ZERO;
         }
 
-        let sum = positioned
-            .iter()
-            .fold(Vec2::ZERO, |acc, pos| acc + pos.to_vec2());
-        (sum / positioned.len() as f32).to_pos2()
+        self.known_edges = current_edges;
     }
 
     /// Advances the simulation by `dt` seconds under the force model set out in [`lj_force`] and
@@ -341,18 +304,6 @@ fn add_angular_balance_forces(
     }
 }
 
-/// A small, deterministic-per-name offset (no RNG) for placing a newly added note: nudges it
-/// away from its base position so notes added in the same sync land at slightly different spots
-/// instead of exactly on top of each other.
-fn deterministic_offset(name: &str) -> Vec2 {
-    let mut hasher = DefaultHasher::new();
-    name.hash(&mut hasher);
-    let hash = hasher.finish();
-
-    let angle = (hash as f32 / u64::MAX as f32) * std::f32::consts::TAU;
-    Vec2::angled(angle) * 40.0
-}
-
 /// Runs the force-directed layout for every note in `project`, from a fresh [`Simulation`], until
 /// it settles (see `Simulation::step`) or a generous step budget elapses, and returns each
 /// note's final world-space position in `project.notes` order. Exposed so the physics [`super::draw`]
@@ -394,25 +345,77 @@ mod tests {
     }
 
     #[test]
-    fn sync_preserves_existing_positions_and_drops_removed_notes() {
-        let mut sim = Simulation::new();
+    fn sync_relayouts_from_scratch_whenever_the_note_set_changes() {
+        // Regression test for a design change: `sync` used to preserve existing notes' positions
+        // when new ones were added, nudging just the new note into place near its neighbors
+        // without touching anything else. Now it recomputes the whole layout via
+        // `initial_layout` (crossing minimization included) whenever the note set changes at
+        // all, adding or removing, so a newly added note gets to benefit from that same
+        // crossing-minimized placement rather than a plain nudge.
         let notes_ab = vec![note("A"), note("B")];
+        let mut sim = Simulation::new();
         sim.sync(&notes_ab, &[]);
 
-        let pos_a = sim.nodes["A"].pos;
-
         let notes_abc = vec![note("A"), note("B"), note("C")];
-        sim.sync(&notes_abc, &[]);
+        let edges_abc: Vec<Edge> = vec![];
+        sim.sync(&notes_abc, &edges_abc);
 
-        assert_eq!(sim.nodes["A"].pos, pos_a);
         assert!(sim.nodes.contains_key("C"));
+        let expected = initial_layout(notes_abc.len(), &edges_abc);
+        for (note, expected_pos) in notes_abc.iter().zip(&expected) {
+            assert_eq!(sim.nodes[&note.name].pos, *expected_pos);
+        }
 
         let notes_ac = vec![note("A"), note("C")];
-        sim.sync(&notes_ac, &[]);
+        let edges_ac: Vec<Edge> = vec![];
+        sim.sync(&notes_ac, &edges_ac);
 
-        assert_eq!(sim.nodes["A"].pos, pos_a);
         assert!(!sim.nodes.contains_key("B"));
-        assert!(sim.nodes.contains_key("C"));
+        let expected = initial_layout(notes_ac.len(), &edges_ac);
+        for (note, expected_pos) in notes_ac.iter().zip(&expected) {
+            assert_eq!(sim.nodes[&note.name].pos, *expected_pos);
+        }
+    }
+
+    #[test]
+    fn sync_relayouts_from_scratch_when_only_the_edge_set_changes() {
+        // The other half of the same design change: adding (or removing) a link between two
+        // already-existing notes, with no note added or removed, should also trigger a fresh
+        // crossing-minimized layout — e.g. editing a note's content to link an existing note it
+        // didn't link before.
+        let notes = vec![note("A"), note("B"), note("C")];
+
+        let mut sim = Simulation::new();
+        sim.sync(&notes, &[]);
+
+        let edges = vec![edge(0, 1)];
+        sim.sync(&notes, &edges);
+
+        let expected = initial_layout(notes.len(), &edges);
+        for (note, expected_pos) in notes.iter().zip(&expected) {
+            assert_eq!(sim.nodes[&note.name].pos, *expected_pos);
+        }
+    }
+
+    #[test]
+    fn sync_leaves_positions_alone_when_the_structure_is_unchanged() {
+        let notes = vec![note("A"), note("B")];
+        let edges = vec![edge(0, 1)];
+
+        let mut sim = Simulation::new();
+        sim.sync(&notes, &edges);
+
+        let settings = SimulationSettings::default();
+        for _ in 0..60 {
+            sim.step(&notes, &edges, 1.0 / 60.0, &settings);
+        }
+        let pos_after_settling = sim.nodes["A"].pos;
+
+        // Same notes, same edges: sync should be a no-op rather than resetting the
+        // physics-moved position back to `initial_layout`'s starting point.
+        sim.sync(&notes, &edges);
+
+        assert_eq!(sim.nodes["A"].pos, pos_after_settling);
     }
 
     #[test]
