@@ -1,3 +1,6 @@
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
+
 use eframe::egui;
 
 use crate::{
@@ -30,6 +33,34 @@ const DELETE_NOTE_SHORTCUTS: [egui::KeyboardShortcut; 2] = [
     egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::Delete),
     egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::Backspace),
 ];
+
+/// How long the "Saved in …" popup stays up after a save finishes before disappearing on its
+/// own.
+const SAVE_STATUS_DISPLAY_DURATION: Duration = Duration::from_secs(3);
+
+/// What [`App::draw_save_status`] shows in the corner popup. `Saved` remembers when it was set
+/// (rather than the draw function taking a snapshot) so the popup's remaining lifetime survives
+/// across frames instead of resetting on every repaint.
+enum SaveStatus {
+    Saving,
+    Saved {
+        duration: Duration,
+        shown_at: Instant,
+    },
+}
+
+/// Formats a save's elapsed time for the "Saved in …" popup. Writing this app's small,
+/// human-readable project files is usually well under a millisecond, hence the separate case
+/// rather than always rounding to whole milliseconds (which would read "Saved in 0ms").
+fn format_save_duration(duration: Duration) -> String {
+    let millis = duration.as_secs_f64() * 1000.0;
+
+    if millis < 1.0 {
+        "less than 1ms".to_owned()
+    } else {
+        format!("{millis:.0}ms")
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CellMode {
@@ -87,6 +118,13 @@ pub struct App {
     rename_request_focus: bool,
     /// The note pending a delete-confirmation prompt.
     delete_confirm: Option<NoteId>,
+    /// A save queued by [`Self::request_save`], to be written by [`Self::process_pending_save`]
+    /// on the *next* frame — deferred by a frame so the "Saving…" popup set alongside it actually
+    /// gets painted before the (synchronous) write happens, rather than being immediately
+    /// overwritten by "Saved" within the same frame.
+    pending_save: Option<PathBuf>,
+    /// The corner popup [`Self::draw_save_status`] shows, if any.
+    save_status: Option<SaveStatus>,
     note_sort: NoteSort,
     settings: Settings,
     show_settings: bool,
@@ -114,6 +152,8 @@ impl App {
             rename_name: String::new(),
             rename_request_focus: false,
             delete_confirm: None,
+            pending_save: None,
+            save_status: None,
             note_sort: NoteSort::Unsorted,
             settings: Settings::load(),
             show_settings: false,
@@ -159,7 +199,7 @@ impl App {
         };
 
         if let Some(path) = project.path.clone() {
-            self.save_project_to(&path);
+            self.request_save(path);
         } else {
             self.save_project_as();
         }
@@ -178,23 +218,88 @@ impl App {
             return;
         };
 
-        self.save_project_to(&path);
+        self.request_save(path);
     }
 
-    fn save_project_to(&mut self, path: &std::path::Path) {
+    /// Queues `path` to be written next frame (see [`Self::pending_save`]) and shows the
+    /// "Saving…" popup right away.
+    fn request_save(&mut self, path: PathBuf) {
+        self.pending_save = Some(path);
+        self.save_status = Some(SaveStatus::Saving);
+    }
+
+    /// Performs a save queued by [`Self::request_save`] on a previous frame, if any, and updates
+    /// [`Self::save_status`] with the result.
+    fn process_pending_save(&mut self) {
+        let Some(path) = self.pending_save.take() else {
+            return;
+        };
         let Some(project) = &mut self.project else {
+            self.save_status = None;
             return;
         };
 
-        match project.save(path) {
+        let start = Instant::now();
+
+        match project.save(&path) {
             Ok(()) => {
-                log::info!("Saved project to {path:?}");
-                project.path = Some(path.to_owned());
+                let duration = start.elapsed();
+                log::info!(
+                    "Saved project to {path:?} in {}",
+                    format_save_duration(duration)
+                );
+                project.path = Some(path);
+                self.save_status = Some(SaveStatus::Saved {
+                    duration,
+                    shown_at: Instant::now(),
+                });
             }
             Err(error) => {
                 log::error!("Failed to save project: {error}");
+                self.save_status = None;
             }
         }
+    }
+
+    /// Shows [`Self::save_status`], if any, as a small popup in the bottom-left corner (the
+    /// opposite corner from the error notifications). The "Saved" variant clears itself once
+    /// [`SAVE_STATUS_DISPLAY_DURATION`] has passed.
+    fn draw_save_status(&mut self, ctx: &egui::Context) {
+        let Some(status) = &self.save_status else {
+            return;
+        };
+
+        let text = match status {
+            SaveStatus::Saving => {
+                // Guarantees a next frame even with no further input, so
+                // `process_pending_save` (called at the top of the *next* frame) actually runs
+                // promptly instead of waiting for the user to move the mouse.
+                ctx.request_repaint();
+                "Saving…".to_owned()
+            }
+            SaveStatus::Saved { duration, .. } => {
+                format!("Saved in {}", format_save_duration(*duration))
+            }
+        };
+
+        if let SaveStatus::Saved { shown_at, .. } = status {
+            let elapsed = shown_at.elapsed();
+
+            if elapsed >= SAVE_STATUS_DISPLAY_DURATION {
+                self.save_status = None;
+                return;
+            }
+
+            ctx.request_repaint_after(SAVE_STATUS_DISPLAY_DURATION - elapsed);
+        }
+
+        egui::Area::new(egui::Id::new("save_status"))
+            .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(12.0, -12.0))
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.label(text);
+                });
+            });
     }
 
     fn create_note(&mut self) {
@@ -460,6 +565,8 @@ impl App {
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.process_pending_save();
+
         let visuals = self.settings.ui.to_visuals();
         let font_size = self.settings.font_size.clone();
         let theme = ui.ctx().theme();
@@ -774,6 +881,7 @@ impl eframe::App for App {
         });
 
         self.draw_notifications(ui.ctx());
+        self.draw_save_status(ui.ctx());
 
         self.show_new_note_dialog(ui.ctx());
         self.show_rename_dialog(ui.ctx());
