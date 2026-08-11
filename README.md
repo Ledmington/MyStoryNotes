@@ -64,6 +64,26 @@ copied anywhere and run on its own.
 - The graph view opens alongside a note, or fills the screen when no note is
   open; click any node to open that note.
 
+### Keyboard shortcuts
+
+`Ctrl` below is `Cmd` on macOS.
+
+- `Ctrl+N` — New Project
+- `Ctrl+O` — Open Project
+- `Ctrl+S` — Save Project
+- `Ctrl+M` — New Note (while a project is open)
+
+While editing a note, these wrap the selected text (or, with nothing
+selected, insert an empty pair and place the cursor ready to type).
+Pressing the same shortcut again on the same selection removes the
+formatting instead of doubling it up.
+
+- `Ctrl+B` — **bold**
+- `Ctrl+I` — *italic*
+- `Ctrl+U` — <u>underline</u>
+- `Ctrl+E` — `verbatim` (inline code)
+- `Ctrl+K` — hyperlink
+
 An example project with sample notes is included at
 [`tests/fixtures/example_project.mystorynotes`](tests/fixtures/example_project.mystorynotes)
 — open it from the app to see the format and the graph view in action. It

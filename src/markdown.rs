@@ -11,6 +11,9 @@ struct Span {
     text: String,
     bold: bool,
     italic: bool,
+    /// Set by a `<u>...</u>` pair — CommonMark has no native underline syntax, so this is the
+    /// one inline construct recognized as raw HTML rather than markdown proper.
+    underline: bool,
     code: bool,
     link: Option<String>,
 }
@@ -90,6 +93,7 @@ fn collect_blocks(source: &str) -> Vec<Block> {
 
     let mut bold = false;
     let mut italic = false;
+    let mut underline = false;
     let mut link: Option<String> = None;
 
     for event in Parser::new(source) {
@@ -126,12 +130,19 @@ fn collect_blocks(source: &str) -> Vec<Block> {
             Event::Start(Tag::Link { dest_url, .. }) => link = Some(dest_url.to_string()),
             Event::End(TagEnd::Link) => link = None,
 
+            Event::InlineHtml(html) => match html.trim() {
+                "<u>" => underline = true,
+                "</u>" => underline = false,
+                _ => {}
+            },
+
             Event::Text(text) => {
                 if let Some(block) = &mut current {
                     block.lines_mut().last_mut().unwrap().push(Span {
                         text: text.to_string(),
                         bold,
                         italic,
+                        underline,
                         code: false,
                         link: link.clone(),
                     });
@@ -144,6 +155,7 @@ fn collect_blocks(source: &str) -> Vec<Block> {
                         text: code.to_string(),
                         bold,
                         italic,
+                        underline,
                         code: true,
                         link: link.clone(),
                     });
@@ -156,6 +168,7 @@ fn collect_blocks(source: &str) -> Vec<Block> {
                         text: " ".to_owned(),
                         bold: false,
                         italic: false,
+                        underline: false,
                         code: false,
                         link: None,
                     });
@@ -233,6 +246,10 @@ fn render_span(
         rich_text = rich_text.color(settings::rgb(color));
     }
 
+    if span.underline {
+        rich_text = rich_text.underline();
+    }
+
     if let Some(target) = &span.link {
         rich_text = rich_text.underline();
 
@@ -283,6 +300,7 @@ struct Depths {
     heading: u32,
     bold: u32,
     italic: u32,
+    underline: u32,
     link: u32,
 }
 
@@ -353,6 +371,38 @@ pub fn highlight(ui: &Ui, source: &str, edit: &EditPalette, size: f32) -> Layout
                     content_format(&depths, false, &palette),
                 );
             }
+
+            Event::InlineHtml(html) => match html.trim() {
+                "<u>" => {
+                    append_upto(
+                        &mut job,
+                        &mut cursor,
+                        source,
+                        range.start,
+                        gap_format(&depths, &palette),
+                    );
+                    depths.underline += 1;
+                }
+                "</u>" => {
+                    append_upto(
+                        &mut job,
+                        &mut cursor,
+                        source,
+                        range.end,
+                        gap_format(&depths, &palette),
+                    );
+                    depths.underline = depths.underline.saturating_sub(1);
+                }
+                _ => {
+                    append_upto(
+                        &mut job,
+                        &mut cursor,
+                        source,
+                        range.end,
+                        gap_format(&depths, &palette),
+                    );
+                }
+            },
 
             Event::Code(code) => {
                 // The event's range spans the backtick delimiters too, but its text does not;
@@ -427,7 +477,7 @@ fn append_upto(
 /// A heading's own `#` marker is bold, matching its content; other markup (`**`, `*`, `[]()`) is
 /// left at regular weight, since its dimmed color already sets it apart.
 fn gap_format(depths: &Depths, palette: &Palette) -> TextFormat {
-    let dimmed = depths.bold > 0 || depths.italic > 0 || depths.link > 0;
+    let dimmed = depths.bold > 0 || depths.italic > 0 || depths.underline > 0 || depths.link > 0;
 
     let color = if dimmed {
         palette.punctuation
@@ -468,10 +518,16 @@ fn content_format(depths: &Depths, code: bool, palette: &Palette) -> TextFormat 
 
     let bold = depths.heading > 0 || depths.bold > 0;
     let italic = depths.italic > 0;
+    let underline = if depths.underline > 0 {
+        Stroke::new(1.0, color)
+    } else {
+        Stroke::NONE
+    };
 
     TextFormat {
         font_id: fonts::mono(palette.body_size, bold, italic),
         color,
+        underline,
         ..Default::default()
     }
 }
@@ -515,5 +571,44 @@ fn url_format(palette: &Palette) -> TextFormat {
         color: palette.default,
         underline: Stroke::new(1.0_f32, palette.default),
         ..Default::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_links_ignores_underline_markup() {
+        let links = extract_links("plain [text](Target) and <u>underlined</u> text");
+        assert_eq!(links, vec!["Target".to_owned()]);
+    }
+
+    #[test]
+    fn highlight_underlines_only_the_content_between_u_tags() {
+        egui::__run_test_ui(|ui| {
+            let job = highlight(
+                ui,
+                "before <u>under</u> after",
+                &EditPalette::default(),
+                14.0,
+            );
+
+            let format_of = |needle: &str| {
+                job.sections
+                    .iter()
+                    .find(|section| {
+                        let range = section.byte_range.start.0..section.byte_range.end.0;
+                        job.text[range] == *needle
+                    })
+                    .unwrap_or_else(|| panic!("no section for {needle:?}"))
+                    .format
+                    .clone()
+            };
+
+            assert_ne!(format_of("under").underline, Stroke::NONE);
+            assert_eq!(format_of("before ").underline, Stroke::NONE);
+            assert_eq!(format_of(" after").underline, Stroke::NONE);
+        });
     }
 }

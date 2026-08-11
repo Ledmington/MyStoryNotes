@@ -10,7 +10,7 @@ Its main use case is to create graphs of notes regarding stories the user may wa
 Non-negotiables:
 - offline-only
 - the save file for each "project" must be a single, human-readable file
-- no HTML
+- as little HTML as possible — prefer plain CommonMark syntax; raw HTML in note source is only acceptable where CommonMark has no native construct for what's needed (e.g. `<u>...</u>` for underline, which CommonMark doesn't support)
 - the application must be self-contained, it needs to be a single static executable
 - no `unsafe` code
 - no dead code (including code kept alive only via `#[allow(dead_code)]` or similar suppressions) — if something is unused, delete it
