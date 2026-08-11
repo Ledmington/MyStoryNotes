@@ -20,6 +20,11 @@ impl Search {
         self.open = true;
         self.request_focus = true;
     }
+
+    /// Whether the search window is currently showing.
+    pub fn is_open(&self) -> bool {
+        self.open
+    }
 }
 
 /// Shows the project-wide note search window when open: a query field plus a list of every note

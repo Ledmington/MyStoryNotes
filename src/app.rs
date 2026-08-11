@@ -22,6 +22,8 @@ const NEW_NOTE_SHORTCUT: egui::KeyboardShortcut =
     egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::M);
 const SEARCH_SHORTCUT: egui::KeyboardShortcut =
     egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::F);
+const CLOSE_PANEL_SHORTCUT: egui::KeyboardShortcut =
+    egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::Escape);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CellMode {
@@ -459,6 +461,14 @@ impl eframe::App for App {
             && ui.input_mut(|input| input.consume_shortcut(&NEW_NOTE_SHORTCUT));
         let search_pressed = self.project.is_some()
             && ui.input_mut(|input| input.consume_shortcut(&SEARCH_SHORTCUT));
+        // Only consumed when nothing else would react to Escape first — otherwise it would eat
+        // the keypress a dialog or the search window needs for its own close-on-Escape handling.
+        let close_panel_pressed = self.open_cell.is_some()
+            && self.rename_dialog.is_none()
+            && !self.new_note_dialog
+            && self.delete_confirm.is_none()
+            && !self.search.is_open()
+            && ui.input_mut(|input| input.consume_shortcut(&CLOSE_PANEL_SHORTCUT));
 
         if new_project_pressed {
             self.new_project();
@@ -476,6 +486,9 @@ impl eframe::App for App {
         }
         if search_pressed {
             self.search.open();
+        }
+        if close_panel_pressed {
+            self.open_cell = None;
         }
 
         egui::Panel::top("toolbar").show(ui, |ui| {
@@ -778,7 +791,12 @@ fn draw_cell(
                 action = Some(CellAction::Delete);
             }
 
-            if icon_button(ui, crate::fonts::icon::TIMES, "Close") {
+            let close_label = crate::fonts::icon_label(ui, crate::fonts::icon::TIMES, "Close");
+            if ui
+                .small_button(close_label)
+                .on_hover_text(ui.ctx().format_shortcut(&CLOSE_PANEL_SHORTCUT))
+                .clicked()
+            {
                 action = Some(CellAction::Close);
             }
         });
