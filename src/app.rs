@@ -823,7 +823,14 @@ fn draw_cell(
         })
         .response;
 
-    if !link_clicked && cell.mode == CellMode::Rendered && response.clicked() {
+    // Only upgraded to a click sense in Rendered mode: doing this unconditionally would make the
+    // frame interactive while Editing too, and egui defocuses a widget whenever a click lands on
+    // *any other* click-sensing widget — so every click inside the note editor would immediately
+    // steal focus back via this frame and kick the cell back to Rendered mid-edit.
+    if !link_clicked
+        && cell.mode == CellMode::Rendered
+        && response.interact(egui::Sense::click()).double_clicked()
+    {
         cell.mode = CellMode::Editing;
     }
 
