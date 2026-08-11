@@ -10,5 +10,6 @@ pub mod logging;
 pub mod markdown;
 pub mod note_editor;
 pub mod project;
+pub mod search;
 pub mod settings;
 pub mod settings_panel;
