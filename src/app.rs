@@ -68,10 +68,15 @@ pub struct App {
     open_cell: Option<Cell>,
     new_note_dialog: bool,
     new_note_name: String,
+    /// Set alongside [`Self::new_note_dialog`]/[`Self::rename_dialog`] whenever a dialog opens (or
+    /// reopens), so its text field grabs keyboard focus rather than leaving the window unfocused
+    /// underneath the main one; consumed the first frame it's drawn.
+    new_note_request_focus: bool,
     /// The note being renamed, and the dialog's current text field content, while the rename
     /// dialog is open.
     rename_dialog: Option<NoteId>,
     rename_name: String,
+    rename_request_focus: bool,
     /// The note pending a delete-confirmation prompt.
     delete_confirm: Option<NoteId>,
     note_sort: NoteSort,
@@ -96,8 +101,10 @@ impl App {
             open_cell: None,
             new_note_dialog: false,
             new_note_name: String::new(),
+            new_note_request_focus: false,
             rename_dialog: None,
             rename_name: String::new(),
+            rename_request_focus: false,
             delete_confirm: None,
             note_sort: NoteSort::Unsorted,
             settings: Settings::load(),
@@ -230,6 +237,9 @@ impl App {
             return;
         }
 
+        let request_focus = self.new_note_request_focus;
+        self.new_note_request_focus = false;
+
         egui::Window::new("New Note")
             .collapsible(false)
             .resizable(false)
@@ -237,6 +247,10 @@ impl App {
                 ui.label("Name:");
 
                 let response = ui.text_edit_singleline(&mut self.new_note_name);
+
+                if request_focus {
+                    response.request_focus();
+                }
 
                 ui.horizontal(|ui| {
                     if ui.button("Cancel").clicked() {
@@ -290,6 +304,9 @@ impl App {
             return;
         }
 
+        let request_focus = self.rename_request_focus;
+        self.rename_request_focus = false;
+
         egui::Window::new("Rename Note")
             .collapsible(false)
             .resizable(false)
@@ -297,6 +314,10 @@ impl App {
                 ui.label("Name:");
 
                 let response = ui.text_edit_singleline(&mut self.rename_name);
+
+                if request_focus {
+                    response.request_focus();
+                }
 
                 ui.horizontal(|ui| {
                     if ui.button("Cancel").clicked() {
@@ -451,6 +472,7 @@ impl eframe::App for App {
         if new_note_pressed {
             self.new_note_dialog = true;
             self.new_note_name.clear();
+            self.new_note_request_focus = true;
         }
         if search_pressed {
             self.search.open();
@@ -492,6 +514,7 @@ impl eframe::App for App {
                     {
                         self.new_note_dialog = true;
                         self.new_note_name.clear();
+                        self.new_note_request_focus = true;
                     }
 
                     ui.separator();
@@ -688,6 +711,7 @@ impl eframe::App for App {
                 Some(CellAction::Rename) => {
                     self.rename_dialog = Some(cell.note_index);
                     self.rename_name = project.notes[usize::from(cell.note_index)].name.clone();
+                    self.rename_request_focus = true;
                 }
                 Some(CellAction::Delete) => {
                     self.delete_confirm = Some(cell.note_index);
