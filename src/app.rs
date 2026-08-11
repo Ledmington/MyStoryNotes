@@ -4,7 +4,7 @@ use crate::{
     graph,
     logging::Notifications,
     markdown,
-    project::Project,
+    project::{NoteId, Project},
     settings::{EditPalette, Settings},
 };
 
@@ -176,7 +176,7 @@ enum CellMode {
 }
 
 struct Cell {
-    note_index: usize,
+    note_index: NoteId,
     mode: CellMode,
 }
 
@@ -527,9 +527,9 @@ impl App {
             return;
         };
 
-        let results: Vec<(usize, String)> = search_notes(project, &self.search_query)
+        let results: Vec<(NoteId, String)> = search_notes(project, &self.search_query)
             .into_iter()
-            .map(|index| (index, project.notes[index].name.clone()))
+            .map(|index| (index, project.notes[usize::from(index)].name.clone()))
             .collect();
 
         let request_focus = self.search_request_focus;
@@ -789,7 +789,7 @@ impl eframe::App for App {
                 ui.separator();
 
                 for index in sorted_note_indices(project, self.note_sort) {
-                    let note = &project.notes[index];
+                    let note = &project.notes[usize::from(index)];
                     let is_open = self
                         .open_cell
                         .as_ref()
@@ -897,7 +897,7 @@ fn draw_cell(ui: &mut egui::Ui, project: &mut Project, cell: &mut Cell, settings
                     cell.mode = CellMode::Editing;
                 }
 
-                let Some(note) = project.notes.get(cell.note_index) else {
+                let Some(note) = project.notes.get(usize::from(cell.note_index)) else {
                     return;
                 };
 
@@ -910,7 +910,7 @@ fn draw_cell(ui: &mut egui::Ui, project: &mut Project, cell: &mut Cell, settings
                     link_clicked = true;
 
                     if let Some(index) = project.notes.iter().position(|note| note.name == target) {
-                        cell.note_index = index;
+                        cell.note_index = NoteId::from(index);
                     } else if is_web_url(&target) {
                         match webbrowser::open(&target) {
                             Ok(()) => log::info!("Opened '{target}' in the browser"),
@@ -925,7 +925,7 @@ fn draw_cell(ui: &mut egui::Ui, project: &mut Project, cell: &mut Cell, settings
                     cell.mode = CellMode::Rendered;
                 }
 
-                let Some(note) = project.notes.get_mut(cell.note_index) else {
+                let Some(note) = project.notes.get_mut(usize::from(cell.note_index)) else {
                     return;
                 };
 
@@ -1011,16 +1011,24 @@ fn draw_note_editor(
 /// The indices into `project.notes`, ordered per `sort` — the save file's own order for
 /// [`NoteSort::Unsorted`]. Ties within the two connections orderings break alphabetically, for a
 /// stable, predictable order.
-fn sorted_note_indices(project: &Project, sort: NoteSort) -> Vec<usize> {
-    let mut order: Vec<usize> = (0..project.notes.len()).collect();
+fn sorted_note_indices(project: &Project, sort: NoteSort) -> Vec<NoteId> {
+    let mut order: Vec<NoteId> = (0..project.notes.len()).map(NoteId::from).collect();
 
     match sort {
         NoteSort::Unsorted => {}
         NoteSort::NameAscending => {
-            order.sort_by(|&a, &b| project.notes[a].name.cmp(&project.notes[b].name));
+            order.sort_by(|&a, &b| {
+                project.notes[usize::from(a)]
+                    .name
+                    .cmp(&project.notes[usize::from(b)].name)
+            });
         }
         NoteSort::NameDescending => {
-            order.sort_by(|&a, &b| project.notes[b].name.cmp(&project.notes[a].name));
+            order.sort_by(|&a, &b| {
+                project.notes[usize::from(b)]
+                    .name
+                    .cmp(&project.notes[usize::from(a)].name)
+            });
         }
         NoteSort::ConnectionsAscending | NoteSort::ConnectionsDescending => {
             let counts = graph::connection_counts(project);
@@ -1028,11 +1036,15 @@ fn sorted_note_indices(project: &Project, sort: NoteSort) -> Vec<usize> {
 
             order.sort_by(|&a, &b| {
                 let by_count = if ascending {
-                    counts[a].cmp(&counts[b])
+                    counts[usize::from(a)].cmp(&counts[usize::from(b)])
                 } else {
-                    counts[b].cmp(&counts[a])
+                    counts[usize::from(b)].cmp(&counts[usize::from(a)])
                 };
-                by_count.then_with(|| project.notes[a].name.cmp(&project.notes[b].name))
+                by_count.then_with(|| {
+                    project.notes[usize::from(a)]
+                        .name
+                        .cmp(&project.notes[usize::from(b)].name)
+                })
             });
         }
     }
@@ -1043,7 +1055,7 @@ fn sorted_note_indices(project: &Project, sort: NoteSort) -> Vec<usize> {
 /// The indices into `project.notes`, in project order, whose name or content contains `query`
 /// (case-insensitive). Empty for a blank or whitespace-only `query`, rather than matching every
 /// note.
-fn search_notes(project: &Project, query: &str) -> Vec<usize> {
+fn search_notes(project: &Project, query: &str) -> Vec<NoteId> {
     let query = query.trim();
 
     if query.is_empty() {
@@ -1053,8 +1065,9 @@ fn search_notes(project: &Project, query: &str) -> Vec<usize> {
     let query = query.to_lowercase();
 
     (0..project.notes.len())
+        .map(NoteId::from)
         .filter(|&index| {
-            let note = &project.notes[index];
+            let note = &project.notes[usize::from(index)];
             note.name.to_lowercase().contains(&query) || note.source.to_lowercase().contains(&query)
         })
         .collect()
@@ -1196,9 +1209,15 @@ mod tests {
             ],
         };
 
-        assert_eq!(search_notes(&project, "alice"), vec![0, 1]);
-        assert_eq!(search_notes(&project, "LIGHTHOUSE"), vec![0, 2]);
-        assert_eq!(search_notes(&project, "brother"), vec![1]);
+        assert_eq!(
+            search_notes(&project, "alice"),
+            vec![NoteId::from(0), NoteId::from(1)]
+        );
+        assert_eq!(
+            search_notes(&project, "LIGHTHOUSE"),
+            vec![NoteId::from(0), NoteId::from(2)]
+        );
+        assert_eq!(search_notes(&project, "brother"), vec![NoteId::from(1)]);
         assert!(search_notes(&project, "nonexistent").is_empty());
     }
 

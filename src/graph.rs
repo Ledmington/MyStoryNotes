@@ -6,13 +6,31 @@ use egui::{Color32, FontId, Id, Pos2, Rect, Sense, Stroke, StrokeKind, TextStyle
 
 use crate::fonts::{self, icon};
 use crate::markdown;
-use crate::project::{Note, Project};
+use crate::project::{Note, NoteId, Project};
 use crate::settings::{self, SimulationSettings, UiPalette};
+
+/// An edge's position in the resolved edge list, for tracking which one (if any) the mouse is
+/// hovering. A thin `usize` wrapper so it can't be confused with a [`NoteId`], even though both
+/// are array indices under the hood.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ConnectionId(usize);
+
+impl From<usize> for ConnectionId {
+    fn from(index: usize) -> Self {
+        Self(index)
+    }
+}
+
+impl From<ConnectionId> for usize {
+    fn from(id: ConnectionId) -> Self {
+        id.0
+    }
+}
 
 /// A markdown link from one note to another, resolved to indices into [`Project::notes`].
 struct Edge {
-    from: usize,
-    to: usize,
+    from: NoteId,
+    to: NoteId,
 }
 
 /// Resolves every note's markdown links into [`Edge`]s indexing into `project.notes`.
@@ -22,10 +40,15 @@ fn resolve_edges(project: &Project) -> Vec<Edge> {
         .iter()
         .enumerate()
         .flat_map(|(from, note)| {
+            let from = NoteId::from(from);
+
             markdown::extract_links(&note.source)
                 .into_iter()
                 .filter_map(move |target| project.notes.iter().position(|note| note.name == target))
-                .map(move |to| Edge { from, to })
+                .map(move |to| Edge {
+                    from,
+                    to: NoteId::from(to),
+                })
         })
         .collect()
 }
@@ -37,10 +60,11 @@ pub fn connection_counts(project: &Project) -> Vec<usize> {
     let edges = resolve_edges(project);
 
     (0..project.notes.len())
-        .map(|i| {
+        .map(NoteId::from)
+        .map(|id| {
             edges
                 .iter()
-                .filter(|edge| edge.from != edge.to && (edge.from == i || edge.to == i))
+                .filter(|edge| edge.from != edge.to && (edge.from == id || edge.to == id))
                 .count()
         })
         .collect()
@@ -76,15 +100,16 @@ impl Simulation {
         self.nodes
             .retain(|name, _| notes.iter().any(|note| &note.name == name));
 
-        let new_indices: Vec<usize> = (0..notes.len())
-            .filter(|&i| !self.nodes.contains_key(&notes[i].name))
+        let new_ids: Vec<NoteId> = (0..notes.len())
+            .map(NoteId::from)
+            .filter(|&id| !self.nodes.contains_key(&notes[usize::from(id)].name))
             .collect();
 
-        if new_indices.is_empty() {
+        if new_ids.is_empty() {
             return;
         }
 
-        if new_indices.len() == notes.len() {
+        if new_ids.len() == notes.len() {
             for (note, pos) in notes.iter().zip(initial_layout(notes.len(), edges)) {
                 self.nodes.insert(
                     note.name.clone(),
@@ -99,13 +124,15 @@ impl Simulation {
 
         let centroid = self.centroid(notes);
 
-        for &i in &new_indices {
+        for &id in &new_ids {
             let linked_neighbors: Vec<Pos2> = edges
                 .iter()
-                .filter(|edge| edge.from == i || edge.to == i)
+                .filter(|edge| edge.from == id || edge.to == id)
                 .filter_map(|edge| {
-                    let other = if edge.from == i { edge.to } else { edge.from };
-                    self.nodes.get(&notes[other].name).map(|state| state.pos)
+                    let other = if edge.from == id { edge.to } else { edge.from };
+                    self.nodes
+                        .get(&notes[usize::from(other)].name)
+                        .map(|state| state.pos)
                 })
                 .collect();
 
@@ -118,9 +145,9 @@ impl Simulation {
                 (sum / linked_neighbors.len() as f32).to_pos2()
             };
 
-            let pos = base + deterministic_offset(&notes[i].name);
+            let pos = base + deterministic_offset(&notes[usize::from(id)].name);
             self.nodes.insert(
-                notes[i].name.clone(),
+                notes[usize::from(id)].name.clone(),
                 NodeState {
                     pos,
                     vel: Vec2::ZERO,
@@ -169,7 +196,7 @@ impl Simulation {
             .map(|note| self.nodes[&note.name].pos)
             .collect();
 
-        let connected: HashSet<(usize, usize)> = edges
+        let connected: HashSet<(NoteId, NoteId)> = edges
             .iter()
             .filter(|edge| edge.from != edge.to)
             .map(|edge| (edge.from.min(edge.to), edge.from.max(edge.to)))
@@ -177,17 +204,21 @@ impl Simulation {
 
         let mut forces = vec![Vec2::ZERO; n];
 
-        for i in 0..n {
-            for j in (i + 1)..n {
+        for i in (0..n).map(NoteId::from) {
+            for j in ((usize::from(i) + 1)..n).map(NoteId::from) {
                 let (r_eq, epsilon) = if connected.contains(&(i, j)) {
                     (settings.strong_distance, settings.strong_strength)
                 } else {
                     (settings.weak_distance, settings.weak_strength)
                 };
 
-                let force = lj_force(positions[i] - positions[j], r_eq, epsilon);
-                forces[i] += force;
-                forces[j] -= force;
+                let force = lj_force(
+                    positions[usize::from(i)] - positions[usize::from(j)],
+                    r_eq,
+                    epsilon,
+                );
+                forces[usize::from(i)] += force;
+                forces[usize::from(j)] -= force;
             }
         }
 
@@ -330,15 +361,17 @@ fn add_angular_balance_forces(
     falloff_distance: f32,
 ) {
     let n = positions.len();
-    let mut outgoing: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut outgoing: Vec<Vec<NoteId>> = vec![Vec::new(); n];
 
     for edge in edges {
         if edge.from != edge.to {
-            outgoing[edge.from].push(edge.to);
+            outgoing[usize::from(edge.from)].push(edge.to);
         }
     }
 
     for (center, neighbors) in outgoing.iter().enumerate() {
+        let center = NoteId::from(center);
+
         // A node with `k` outgoing edges produces C(k, 2) pairs, and each neighbor sits in `k -
         // 1` of them; without normalizing by that, a highly-linked hub would push its whole
         // neighborhood out much harder than a hub with only two or three links, purely because it
@@ -349,8 +382,8 @@ fn add_angular_balance_forces(
             for b in (a + 1)..neighbors.len() {
                 let (i, j) = (neighbors[a], neighbors[b]);
 
-                let offset_i = positions[i] - positions[center];
-                let offset_j = positions[j] - positions[center];
+                let offset_i = positions[usize::from(i)] - positions[usize::from(center)];
+                let offset_j = positions[usize::from(j)] - positions[usize::from(center)];
                 let (len_i, len_j) = (offset_i.length(), offset_j.length());
 
                 if len_i < MIN_DIST || len_j < MIN_DIST {
@@ -386,8 +419,8 @@ fn add_angular_balance_forces(
                 let perp_i = Vec2::new(-dir_i.y, dir_i.x);
                 let perp_j = Vec2::new(-dir_j.y, dir_j.x);
 
-                forces[i] -= perp_i * sign * magnitude;
-                forces[j] += perp_j * sign * magnitude;
+                forces[usize::from(i)] -= perp_i * sign * magnitude;
+                forces[usize::from(j)] += perp_j * sign * magnitude;
             }
         }
     }
@@ -420,7 +453,7 @@ fn initial_layout(node_count: usize, edges: &[Edge]) -> Vec<Pos2> {
     let mut positions = vec![Pos2::ZERO; node_count];
     for (slot, &node) in order.iter().enumerate() {
         let angle = slot as f32 / node_count as f32 * std::f32::consts::TAU;
-        positions[node] = Pos2::new(radius * angle.cos(), radius * angle.sin());
+        positions[usize::from(node)] = Pos2::new(radius * angle.cos(), radius * angle.sin());
     }
 
     positions
@@ -429,7 +462,7 @@ fn initial_layout(node_count: usize, edges: &[Edge]) -> Vec<Pos2> {
 /// A circular order of `0..node_count`, seeded with a BFS traversal (so linked notes start out
 /// close together) and then refined by a capped number of pairwise-swap attempts, each kept only
 /// if it strictly reduces the total crossing count.
-fn crossing_minimized_order(node_count: usize, edges: &[Edge]) -> Vec<usize> {
+fn crossing_minimized_order(node_count: usize, edges: &[Edge]) -> Vec<NoteId> {
     let mut order = bfs_order(node_count, edges);
 
     if edges.is_empty() || node_count < 3 {
@@ -474,33 +507,33 @@ fn crossing_minimized_order(node_count: usize, edges: &[Edge]) -> Vec<usize> {
 
 /// A traversal order that tends to place linked notes near each other: BFS from node 0, then any
 /// nodes unreachable from it appended the same way, breaking ties by index throughout.
-fn bfs_order(node_count: usize, edges: &[Edge]) -> Vec<usize> {
-    let mut adjacency: Vec<Vec<usize>> = vec![Vec::new(); node_count];
+fn bfs_order(node_count: usize, edges: &[Edge]) -> Vec<NoteId> {
+    let mut adjacency: Vec<Vec<NoteId>> = vec![Vec::new(); node_count];
     for edge in edges {
         if edge.from != edge.to {
-            adjacency[edge.from].push(edge.to);
-            adjacency[edge.to].push(edge.from);
+            adjacency[usize::from(edge.from)].push(edge.to);
+            adjacency[usize::from(edge.to)].push(edge.from);
         }
     }
 
     let mut visited = vec![false; node_count];
     let mut order = Vec::with_capacity(node_count);
 
-    for start in 0..node_count {
-        if visited[start] {
+    for start in (0..node_count).map(NoteId::from) {
+        if visited[usize::from(start)] {
             continue;
         }
 
         let mut queue = VecDeque::new();
         queue.push_back(start);
-        visited[start] = true;
+        visited[usize::from(start)] = true;
 
         while let Some(node) = queue.pop_front() {
             order.push(node);
 
-            for &neighbor in &adjacency[node] {
-                if !visited[neighbor] {
-                    visited[neighbor] = true;
+            for &neighbor in &adjacency[usize::from(node)] {
+                if !visited[usize::from(neighbor)] {
+                    visited[usize::from(neighbor)] = true;
                     queue.push_back(neighbor);
                 }
             }
@@ -514,22 +547,28 @@ fn bfs_order(node_count: usize, edges: &[Edge]) -> Vec<usize> {
 /// at that circular position. Two edges with four distinct endpoints cross iff exactly one
 /// endpoint of the second falls strictly between the first's two endpoints going around the
 /// circle.
-fn count_crossings(order: &[usize], edges: &[Edge]) -> usize {
+fn count_crossings(order: &[NoteId], edges: &[Edge]) -> usize {
     let mut slot_of = vec![0usize; order.len()];
     for (slot, &node) in order.iter().enumerate() {
-        slot_of[node] = slot;
+        slot_of[usize::from(node)] = slot;
     }
 
     let mut crossings = 0;
 
-    for i in 0..edges.len() {
-        let (a, b) = (slot_of[edges[i].from], slot_of[edges[i].to]);
+    for i in (0..edges.len()).map(ConnectionId::from) {
+        let (a, b) = (
+            slot_of[usize::from(edges[usize::from(i)].from)],
+            slot_of[usize::from(edges[usize::from(i)].to)],
+        );
         if a == b {
             continue;
         }
 
-        for edge in &edges[i + 1..] {
-            let (c, d) = (slot_of[edge.from], slot_of[edge.to]);
+        for edge in &edges[usize::from(i) + 1..] {
+            let (c, d) = (
+                slot_of[usize::from(edge.from)],
+                slot_of[usize::from(edge.to)],
+            );
 
             if c == d || c == a || c == b || d == a || d == b {
                 continue;
@@ -625,8 +664,8 @@ pub fn settle(project: &Project, settings: &SimulationSettings) -> Vec<Pos2> {
 /// `hovered_note` (and, unlike `open_note`, all of *its* directly connected notes and the edges
 /// to them).
 pub struct NoteHighlight {
-    pub open_note: Option<usize>,
-    pub hovered_note: Option<usize>,
+    pub open_note: Option<NoteId>,
+    pub hovered_note: Option<NoteId>,
 }
 
 /// Draws the whole project as a graph: one rectangle per note, one line per markdown link
@@ -643,7 +682,7 @@ pub fn draw(
     simulation_settings: &SimulationSettings,
     sim: &mut Simulation,
     view: &mut View,
-) -> Option<usize> {
+) -> Option<NoteId> {
     let edges = resolve_edges(project);
     sim.sync(&project.notes, &edges);
 
@@ -760,23 +799,23 @@ fn note_rects(
 /// `hovered_note`'s node, every note directly connected to it, and the edges between them; and
 /// whichever edge (if any) the mouse is hovering directly, plus that edge's two endpoint nodes.
 struct Highlight<'a> {
-    open_note: Option<usize>,
-    hovered_note: Option<usize>,
-    hovered_edge: Option<usize>,
+    open_note: Option<NoteId>,
+    hovered_note: Option<NoteId>,
+    hovered_edge: Option<ConnectionId>,
     edges: &'a [Edge],
 }
 
 impl Highlight<'_> {
     /// Whether `a` and `b` are the two endpoints, in either direction, of some edge.
-    fn are_connected(&self, a: usize, b: usize) -> bool {
+    fn are_connected(&self, a: NoteId, b: NoteId) -> bool {
         self.edges
             .iter()
             .any(|edge| (edge.from == a && edge.to == b) || (edge.from == b && edge.to == a))
     }
 
     /// Whether the edge at `index` should be drawn highlighted.
-    fn is_edge(&self, index: usize) -> bool {
-        let edge = &self.edges[index];
+    fn is_edge(&self, index: ConnectionId) -> bool {
+        let edge = &self.edges[usize::from(index)];
 
         self.open_note == Some(edge.from)
             || self.hovered_edge == Some(index)
@@ -785,9 +824,10 @@ impl Highlight<'_> {
     }
 
     /// Whether the note at `index` should be drawn highlighted.
-    fn is_node(&self, index: usize) -> bool {
+    fn is_node(&self, index: NoteId) -> bool {
         let is_hovered_endpoint = self.hovered_edge.is_some_and(|hovered| {
-            self.edges[hovered].from == index || self.edges[hovered].to == index
+            let edge = &self.edges[usize::from(hovered)];
+            edge.from == index || edge.to == index
         });
         let is_hovered_neighbor = self
             .hovered_note
@@ -827,15 +867,15 @@ fn edge_segments(edges: &[Edge], rects: &[Rect], canvas_rect: Rect, view: &View)
         .iter()
         .map(|edge| {
             [
-                to_screen(canvas_rect, view, rects[edge.from].center()),
-                to_screen(canvas_rect, view, rects[edge.to].center()),
+                to_screen(canvas_rect, view, rects[usize::from(edge.from)].center()),
+                to_screen(canvas_rect, view, rects[usize::from(edge.to)].center()),
             ]
         })
         .collect()
 }
 
 /// The index of the edge closest to the mouse, if any is within [`EDGE_HOVER_RADIUS`] of it.
-fn find_hovered_edge(response: &egui::Response, segments: &[[Pos2; 2]]) -> Option<usize> {
+fn find_hovered_edge(response: &egui::Response, segments: &[[Pos2; 2]]) -> Option<ConnectionId> {
     let pos = response.hover_pos()?;
 
     segments
@@ -844,7 +884,7 @@ fn find_hovered_edge(response: &egui::Response, segments: &[[Pos2; 2]]) -> Optio
         .map(|(index, &[a, b])| (index, distance_to_segment(pos, a, b)))
         .filter(|&(_, distance)| distance <= EDGE_HOVER_RADIUS)
         .min_by(|a, b| a.1.total_cmp(&b.1))
-        .map(|(index, _)| index)
+        .map(|(index, _)| ConnectionId::from(index))
 }
 
 /// Draws every edge as a line, highlighted (in the accent color, thicker) per `highlight`.
@@ -855,7 +895,7 @@ fn draw_edges(
     style: &Style,
 ) {
     for (index, &segment) in segments.iter().enumerate() {
-        let highlighted = highlight.is_edge(index);
+        let highlighted = highlight.is_edge(ConnectionId::from(index));
         let color = if highlighted {
             style.colors.accent
         } else {
@@ -876,10 +916,11 @@ fn draw_nodes(
     screen_rects: &[Rect],
     highlight: &Highlight,
     style: &Style,
-) -> Option<usize> {
+) -> Option<NoteId> {
     let mut clicked = None;
 
     for (index, &screen_rect) in screen_rects.iter().enumerate() {
+        let index = NoteId::from(index);
         let highlighted = highlight.is_node(index);
         let border = if highlighted {
             style.colors.accent
@@ -898,7 +939,7 @@ fn draw_nodes(
         let mut scaled_font = style.font_id.clone();
         scaled_font.size *= style.zoom;
         let screen_galley = painter.layout_no_wrap(
-            project.notes[index].name.clone(),
+            project.notes[usize::from(index)].name.clone(),
             scaled_font,
             style.colors.text,
         );
@@ -909,7 +950,11 @@ fn draw_nodes(
         );
 
         let response = ui
-            .interact(screen_rect, Id::new(("graph-node", index)), Sense::click())
+            .interact(
+                screen_rect,
+                Id::new(("graph-node", usize::from(index))),
+                Sense::click(),
+            )
             .on_hover_cursor(egui::CursorIcon::PointingHand);
 
         if response.clicked() {
@@ -1044,17 +1089,18 @@ mod tests {
         }
     }
 
+    fn edge(from: usize, to: usize) -> Edge {
+        Edge {
+            from: NoteId::from(from),
+            to: NoteId::from(to),
+        }
+    }
+
     #[test]
     fn crossing_minimized_order_finds_a_planar_cycle() {
         // A 5-cycle (0-2-4-1-3-0) described with edges out of index order, so the naive index
         // order would cross, but *some* circular order (the cycle order itself) never does.
-        let edges = vec![
-            Edge { from: 0, to: 2 },
-            Edge { from: 2, to: 4 },
-            Edge { from: 4, to: 1 },
-            Edge { from: 1, to: 3 },
-            Edge { from: 3, to: 0 },
-        ];
+        let edges = vec![edge(0, 2), edge(2, 4), edge(4, 1), edge(1, 3), edge(3, 0)];
 
         let order = crossing_minimized_order(5, &edges);
 
@@ -1161,10 +1207,10 @@ mod tests {
 
                 if !shares_endpoint
                     && segments_cross(
-                        positions[e1.from],
-                        positions[e1.to],
-                        positions[e2.from],
-                        positions[e2.to],
+                        positions[usize::from(e1.from)],
+                        positions[usize::from(e1.to)],
+                        positions[usize::from(e2.from)],
+                        positions[usize::from(e2.to)],
                     )
                 {
                     crossings += 1;
@@ -1178,7 +1224,7 @@ mod tests {
     #[test]
     fn two_connected_nodes_converge_close_together() {
         let notes = vec![note("A"), note("B")];
-        let edges = vec![Edge { from: 0, to: 1 }];
+        let edges = vec![edge(0, 1)];
 
         let mut sim = Simulation::new();
         sim.sync(&notes, &edges);
@@ -1196,7 +1242,7 @@ mod tests {
         let notes = vec![note("A"), note("B")];
 
         let mut connected_sim = Simulation::new();
-        let connected_edges = vec![Edge { from: 0, to: 1 }];
+        let connected_edges = vec![edge(0, 1)];
         connected_sim.sync(&notes, &connected_edges);
         let connected_positions = assert_converges(&mut connected_sim, &notes, &connected_edges);
         let connected_separation = (connected_positions[0] - connected_positions[1]).length();
@@ -1221,12 +1267,7 @@ mod tests {
         // the settled layout should have none, and the six ring edges should average a shorter
         // distance than the nine non-edges.
         let notes: Vec<Note> = (0..6).map(|i| note(&format!("N{i}"))).collect();
-        let edges: Vec<Edge> = (0..6)
-            .map(|i| Edge {
-                from: i,
-                to: (i + 1) % 6,
-            })
-            .collect();
+        let edges: Vec<Edge> = (0..6).map(|i| edge(i, (i + 1) % 6)).collect();
 
         let mut sim = Simulation::new();
         sim.sync(&notes, &edges);
@@ -1238,7 +1279,7 @@ mod tests {
             "a ring should always be drawable with no crossing edges"
         );
 
-        let connected: HashSet<(usize, usize)> = edges
+        let connected: HashSet<(NoteId, NoteId)> = edges
             .iter()
             .map(|edge| (edge.from.min(edge.to), edge.from.max(edge.to)))
             .collect();
@@ -1250,7 +1291,7 @@ mod tests {
         for i in 0..6 {
             for j in (i + 1)..6 {
                 let distance = (positions[i] - positions[j]).length();
-                if connected.contains(&(i, j)) {
+                if connected.contains(&(NoteId::from(i), NoteId::from(j))) {
                     connected_total += distance;
                 } else {
                     unconnected_total += distance;
@@ -1275,7 +1316,7 @@ mod tests {
         // falloff, clamp, or degree normalization, so this shape alone was enough to make the
         // whole graph expand forever instead of settling.
         let notes: Vec<Note> = (0..6).map(|i| note(&format!("N{i}"))).collect();
-        let edges: Vec<Edge> = (1..6).map(|i| Edge { from: 0, to: i }).collect();
+        let edges: Vec<Edge> = (1..6).map(|i| edge(0, i)).collect();
 
         let mut sim = Simulation::new();
         sim.sync(&notes, &edges);
@@ -1365,7 +1406,7 @@ mod tests {
         let i_pos = Pos2::new(100.0 * 0.1_f32.cos(), 100.0 * 0.1_f32.sin());
         let j_pos = Pos2::new(100.0 * (-0.1_f32).cos(), 100.0 * (-0.1_f32).sin());
         let positions = [center, i_pos, j_pos];
-        let edges = vec![Edge { from: 0, to: 1 }, Edge { from: 0, to: 2 }];
+        let edges = vec![edge(0, 1), edge(0, 2)];
 
         let settings = SimulationSettings::default();
         let mut forces = vec![Vec2::ZERO; 3];

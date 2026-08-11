@@ -5,6 +5,26 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
+/// A note's position in [`Project::notes`]. A thin `usize` wrapper so a note's identity can't be
+/// silently mixed up with an edge's, a byte offset, or any other plain integer — not persisted:
+/// the save file stores notes as a plain list, and a note's index can shift (e.g. on creation,
+/// which keeps the list sorted by name), so an id only makes sense for the lifetime of a
+/// `Project` value in memory.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct NoteId(usize);
+
+impl From<usize> for NoteId {
+    fn from(index: usize) -> Self {
+        Self(index)
+    }
+}
+
+impl From<NoteId> for usize {
+    fn from(id: NoteId) -> Self {
+        id.0
+    }
+}
+
 /// A single note: a name and its markdown content.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Note {
@@ -66,7 +86,7 @@ impl Project {
         fs::write(path, text)
     }
 
-    pub fn create_note(&mut self, name: &str) -> io::Result<usize> {
+    pub fn create_note(&mut self, name: &str) -> io::Result<NoteId> {
         let name = name.trim();
 
         if name.is_empty() {
@@ -97,6 +117,7 @@ impl Project {
         self.notes
             .iter()
             .position(|note| note.name == name)
+            .map(NoteId::from)
             .ok_or_else(|| io::Error::other("Created note could not be found"))
     }
 }
