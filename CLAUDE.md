@@ -44,6 +44,11 @@ Linting:
 cargo clippy --all-targets --all-features
 ```
 
+Check documentation (catches broken intra-doc links, e.g. a public item's doc comment linking to something private):
+```bash
+cargo doc --no-deps
+```
+
 Run the app in debug mode:
 ```bash
 cargo run
@@ -73,7 +78,7 @@ Many small files are preferable to a few big ones.
 Keep comments to a minimum, unless something weird/unusual is going on.
 Document all public (`pub` and `pub(crate)`) APIs with a minimal description of what the struct/field/method's purpose is.
 When possible, abstract the UI logic into something testable without the graphics.
-Formatting, linting, and testing don't need to happen at every step, but are required before a commit.
+Formatting, linting, testing, and the documentation check don't need to happen at every step, but are required before a commit.
 
 Open questions should be clarified before implementation, rather than resolved by guessing.
 A request that contradicts this document should be flagged, along with a proposed update to this document.

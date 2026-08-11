@@ -79,14 +79,14 @@ struct NodeState {
 /// Persistent per-note physics state for the real-time graph view. Positions and velocities
 /// survive across frames and are keyed by note name (stable across [`Project::create_note`]'s
 /// re-sorting, unlike a note's index) rather than reset on every draw. Own one of these for as
-/// long as the graph view should keep animating; call [`Simulation::step`] once per frame.
+/// long as the graph view should keep animating; call `Simulation::step` once per frame.
 #[derive(Default)]
 pub struct Simulation {
     nodes: HashMap<String, NodeState>,
 }
 
 impl Simulation {
-    /// An empty simulation with no nodes yet; the first [`Simulation::step`] call seeds it.
+    /// An empty simulation with no nodes yet; the first `Simulation::step` call seeds it.
     pub fn new() -> Self {
         Self::default()
     }
@@ -291,7 +291,7 @@ impl Default for View {
 }
 
 impl View {
-    /// A fresh camera centered on the origin at 1:1 zoom, matching where [`initial_layout`]
+    /// A fresh camera centered on the origin at 1:1 zoom, matching where `initial_layout`
     /// places new graphs.
     pub fn new() -> Self {
         Self::default()
@@ -642,7 +642,7 @@ fn declutter(rects: &mut [Rect]) {
 }
 
 /// Runs the force-directed layout for every note in `project`, from a fresh [`Simulation`], until
-/// it settles (see [`Simulation::step`]) or a generous step budget elapses, and returns each
+/// it settles (see `Simulation::step`) or a generous step budget elapses, and returns each
 /// note's final world-space position in `project.notes` order. Exposed so the physics [`draw`]
 /// relies on can be exercised in tests without a live `egui::Ui`.
 pub fn settle(project: &Project, settings: &SimulationSettings) -> Vec<Pos2> {

@@ -114,6 +114,7 @@ cargo run                # run in debug mode
 cargo run --release      # run in release mode
 cargo test                # run the test suite
 cargo clippy --all-targets --all-features   # lint
+cargo doc --no-deps       # check documentation (e.g. broken intra-doc links)
 cargo fmt                 # format
 ```
 
