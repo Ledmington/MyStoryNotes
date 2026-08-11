@@ -46,10 +46,12 @@ const ZOOM_BUTTON_STEP: f32 = 1.25;
 /// Screen pixels the pan buttons move the camera by per click, before dividing by zoom.
 const PAN_BUTTON_STEP: f32 = 80.0;
 
-/// Which notes to highlight in the graph view from outside it, e.g. from the sidebar note list.
-/// `open_note`'s node and outgoing edges are highlighted in the palette's accent color, as is
-/// `hovered_note` (and, unlike `open_note`, all of *its* directly connected notes and the edges
-/// to them).
+/// Which notes to highlight in the graph view: `open_note` from outside it, e.g. the sidebar's
+/// currently-open note. `hovered_note` is a fallback used only if the mouse isn't directly over a
+/// node in the graph view itself this frame — `draw` also detects that on its own, e.g. for the
+/// sidebar note list to highlight a note by hovering its row. `open_note`'s node and outgoing
+/// edges are highlighted in the palette's accent color, as is `hovered_note` (and, unlike
+/// `open_note`, all of *its* directly connected notes and the edges to them).
 pub struct NoteHighlight {
     pub open_note: Option<NoteId>,
     pub hovered_note: Option<NoteId>,
@@ -105,17 +107,6 @@ pub fn draw(
 
     painter.rect_filled(canvas_rect, 0.0, style.colors.canvas);
 
-    let segments = edge_segments(&edges, &rects, canvas_rect, view);
-    let hovered_edge = find_hovered_edge(&response, &segments);
-    let highlight = Highlight {
-        open_note: note_highlight.open_note,
-        hovered_note: note_highlight.hovered_note,
-        hovered_edge,
-        edges: &edges,
-    };
-
-    draw_edges(&painter, &segments, &highlight, &style);
-
     let screen_rects: Vec<Rect> = rects
         .iter()
         .map(|rect| {
@@ -125,6 +116,19 @@ pub fn draw(
             )
         })
         .collect();
+
+    let segments = edge_segments(&edges, &rects, canvas_rect, view);
+    let hovered_edge = find_hovered_edge(&response, &segments);
+    let hovered_note =
+        find_hovered_node(&response, project, &screen_rects).or(note_highlight.hovered_note);
+    let highlight = Highlight {
+        open_note: note_highlight.open_note,
+        hovered_note,
+        hovered_edge,
+        edges: &edges,
+    };
+
+    draw_edges(&painter, &segments, &highlight, &style);
 
     let clicked = draw_nodes(ui, &painter, project, &screen_rects, &highlight, &style);
 
@@ -273,6 +277,23 @@ fn edge_segments(edges: &[Edge], rects: &[Rect], canvas_rect: Rect, view: &View)
             ]
         })
         .collect()
+}
+
+/// The note whose on-screen rect contains the mouse this frame, if any. Skips the manuscript
+/// note the same way [`draw_nodes`] does — it isn't drawn, so it should never be hoverable
+/// either.
+fn find_hovered_node(
+    response: &egui::Response,
+    project: &Project,
+    screen_rects: &[Rect],
+) -> Option<NoteId> {
+    let pos = response.hover_pos()?;
+
+    screen_rects
+        .iter()
+        .enumerate()
+        .find(|(index, rect)| !project.notes[*index].is_manuscript && rect.contains(pos))
+        .map(|(index, _)| NoteId::from(index))
 }
 
 /// Screen pixels within which the mouse counts as hovering over an edge.
