@@ -18,6 +18,8 @@ const SAVE_PROJECT_SHORTCUT: egui::KeyboardShortcut =
     egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::S);
 const NEW_NOTE_SHORTCUT: egui::KeyboardShortcut =
     egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::M);
+const SEARCH_SHORTCUT: egui::KeyboardShortcut =
+    egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::F);
 
 /// The five inline markdown constructs a selection can be wrapped in from the note editor.
 /// Underline has no native CommonMark syntax, so it's the one represented with raw HTML.
@@ -215,6 +217,9 @@ pub struct App {
     note_sort: NoteSort,
     settings: Settings,
     show_settings: bool,
+    show_search: bool,
+    search_query: String,
+    search_request_focus: bool,
     notifications: Notifications,
     graph_sim: graph::Simulation,
     graph_view: graph::View,
@@ -236,10 +241,23 @@ impl App {
             note_sort: NoteSort::Unsorted,
             settings: Settings::load(),
             show_settings: false,
+            show_search: false,
+            search_query: String::new(),
+            search_request_focus: false,
             notifications,
             graph_sim: graph::Simulation::new(),
             graph_view: graph::View::new(),
         }
+    }
+
+    /// Opens the search window, focusing its query field. Reopening an already-open window just
+    /// refocuses it, leaving whatever the user already typed in place.
+    fn open_search(&mut self) {
+        if !self.show_search {
+            self.search_query.clear();
+        }
+        self.show_search = true;
+        self.search_request_focus = true;
     }
 
     /// Draws the color pickers for the Settings panel, saving to `~/.my_story_notes` whenever
@@ -496,6 +514,85 @@ impl App {
             });
     }
 
+    /// Shows the project-wide note search window when open: a query field plus a list of every
+    /// note whose name or content matches (case-insensitively), clicking or pressing Enter on
+    /// which opens that note and closes the search window.
+    fn show_search_window(&mut self, ctx: &egui::Context) {
+        if !self.show_search {
+            return;
+        }
+
+        let Some(project) = &self.project else {
+            self.show_search = false;
+            return;
+        };
+
+        let results: Vec<(usize, String)> = search_notes(project, &self.search_query)
+            .into_iter()
+            .map(|index| (index, project.notes[index].name.clone()))
+            .collect();
+
+        let request_focus = self.search_request_focus;
+        self.search_request_focus = false;
+
+        egui::Window::new("Search")
+            .collapsible(false)
+            .resizable(false)
+            .show(ctx, |ui| {
+                let response = ui.text_edit_singleline(&mut self.search_query);
+
+                if request_focus {
+                    response.request_focus();
+                }
+
+                if ui.input(|input| input.key_pressed(egui::Key::Escape)) {
+                    self.show_search = false;
+                }
+
+                let enter_pressed =
+                    response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
+                let jump_to_first = enter_pressed
+                    .then(|| results.first().map(|(index, _)| *index))
+                    .flatten();
+
+                ui.separator();
+
+                if self.search_query.trim().is_empty() {
+                    ui.label("Type to search note names and content.");
+                } else if results.is_empty() {
+                    ui.label("No matches.");
+                } else {
+                    egui::ScrollArea::vertical()
+                        .max_height(240.0)
+                        .show(ui, |ui| {
+                            for (index, name) in &results {
+                                if ui.selectable_label(false, name).clicked() {
+                                    self.open_cell = Some(Cell {
+                                        note_index: *index,
+                                        mode: CellMode::Rendered,
+                                    });
+                                    self.show_search = false;
+                                }
+                            }
+                        });
+                }
+
+                if let Some(index) = jump_to_first {
+                    self.open_cell = Some(Cell {
+                        note_index: index,
+                        mode: CellMode::Rendered,
+                    });
+                    self.show_search = false;
+                }
+
+                ui.separator();
+
+                if ui.button("Close").clicked() {
+                    self.show_search = false;
+                }
+            });
+    }
+
     /// Shows queued error-level log messages as dismissible red popups stacked in the
     /// bottom-right corner.
     fn draw_notifications(&mut self, ctx: &egui::Context) {
@@ -554,6 +651,8 @@ impl eframe::App for App {
             ui.input_mut(|input| input.consume_shortcut(&SAVE_PROJECT_SHORTCUT));
         let new_note_pressed = self.project.is_some()
             && ui.input_mut(|input| input.consume_shortcut(&NEW_NOTE_SHORTCUT));
+        let search_pressed = self.project.is_some()
+            && ui.input_mut(|input| input.consume_shortcut(&SEARCH_SHORTCUT));
 
         if new_project_pressed {
             self.new_project();
@@ -567,6 +666,9 @@ impl eframe::App for App {
         if new_note_pressed {
             self.new_note_dialog = true;
             self.new_note_name.clear();
+        }
+        if search_pressed {
+            self.open_search();
         }
 
         egui::Panel::top("toolbar").show(ui, |ui| {
@@ -605,6 +707,18 @@ impl eframe::App for App {
                     {
                         self.new_note_dialog = true;
                         self.new_note_name.clear();
+                    }
+
+                    ui.separator();
+
+                    let label = crate::fonts::icon_label(ui, crate::fonts::icon::SEARCH, "Search");
+
+                    if ui
+                        .button(label)
+                        .on_hover_text(ui.ctx().format_shortcut(&SEARCH_SHORTCUT))
+                        .clicked()
+                    {
+                        self.open_search();
                     }
                 }
 
@@ -769,6 +883,7 @@ impl eframe::App for App {
         self.draw_notifications(ui.ctx());
 
         self.show_new_note_dialog(ui.ctx());
+        self.show_search_window(ui.ctx());
     }
 }
 
@@ -914,6 +1029,26 @@ fn sorted_note_indices(project: &Project, sort: NoteSort) -> Vec<usize> {
     order
 }
 
+/// The indices into `project.notes`, in project order, whose name or content contains `query`
+/// (case-insensitive). Empty for a blank or whitespace-only `query`, rather than matching every
+/// note.
+fn search_notes(project: &Project, query: &str) -> Vec<usize> {
+    let query = query.trim();
+
+    if query.is_empty() {
+        return Vec::new();
+    }
+
+    let query = query.to_lowercase();
+
+    (0..project.notes.len())
+        .filter(|&index| {
+            let note = &project.notes[index];
+            note.name.to_lowercase().contains(&query) || note.source.to_lowercase().contains(&query)
+        })
+        .collect()
+}
+
 /// A sort-toggle button: `label` plus an up/down arrow when `current` is `ascending` or
 /// `descending`, highlighted while either is active. Returns whether it was clicked this frame.
 fn sort_button(
@@ -1030,6 +1165,41 @@ mod tests {
         // 'é' is 2 bytes, so the 3rd character ('l') starts at byte 3, not 2.
         assert_eq!(char_to_byte_index(s, 2), 3);
         assert_eq!(char_to_byte_index(s, 100), s.len());
+    }
+
+    fn note(name: &str, source: &str) -> crate::project::Note {
+        crate::project::Note {
+            name: name.to_owned(),
+            source: source.to_owned(),
+        }
+    }
+
+    #[test]
+    fn search_notes_matches_name_or_content_case_insensitively() {
+        let project = Project {
+            path: None,
+            notes: vec![
+                note("Alice", "Lives in the old lighthouse."),
+                note("Bob", "Alice's brother."),
+                note("Lighthouse", "A landmark on the cliffs."),
+            ],
+        };
+
+        assert_eq!(search_notes(&project, "alice"), vec![0, 1]);
+        assert_eq!(search_notes(&project, "LIGHTHOUSE"), vec![0, 2]);
+        assert_eq!(search_notes(&project, "brother"), vec![1]);
+        assert!(search_notes(&project, "nonexistent").is_empty());
+    }
+
+    #[test]
+    fn search_notes_treats_a_blank_query_as_no_matches() {
+        let project = Project {
+            path: None,
+            notes: vec![note("Alice", "")],
+        };
+
+        assert!(search_notes(&project, "").is_empty());
+        assert!(search_notes(&project, "   ").is_empty());
     }
 
     /// Regression test: applying the same format to an already-wrapped selection used to wrap it
