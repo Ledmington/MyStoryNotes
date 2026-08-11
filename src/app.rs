@@ -580,12 +580,19 @@ fn draw_cell(ui: &mut egui::Ui, project: &mut Project, cell: &mut Cell, settings
                     return;
                 };
 
-                if let Some(target) = markdown::render(
-                    ui,
-                    &note.source,
-                    &settings.render,
-                    settings.font_size.render,
-                ) {
+                let clicked_link = egui::ScrollArea::vertical()
+                    .id_salt(("note_scroll", cell.note_index))
+                    .show(ui, |ui| {
+                        markdown::render(
+                            ui,
+                            &note.source,
+                            &settings.render,
+                            settings.font_size.render,
+                        )
+                    })
+                    .inner;
+
+                if let Some(target) = clicked_link {
                     link_clicked = true;
 
                     if let Some(index) = project.notes.iter().position(|note| note.name == target) {
@@ -610,13 +617,20 @@ fn draw_cell(ui: &mut egui::Ui, project: &mut Project, cell: &mut Cell, settings
 
                 let id = ui.make_persistent_id(("note_editor", cell.note_index));
 
-                if note_editor::draw_note_editor(
-                    ui,
-                    &mut note.source,
-                    id,
-                    &settings.edit,
-                    settings.font_size.edit,
-                ) {
+                let done = egui::ScrollArea::vertical()
+                    .id_salt(("note_scroll", cell.note_index))
+                    .show(ui, |ui| {
+                        note_editor::draw_note_editor(
+                            ui,
+                            &mut note.source,
+                            id,
+                            &settings.edit,
+                            settings.font_size.edit,
+                        )
+                    })
+                    .inner;
+
+                if done {
                     cell.mode = CellMode::Rendered;
                 }
             }

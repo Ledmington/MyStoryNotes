@@ -31,9 +31,14 @@ pub struct Note {
     pub name: String,
     pub source: String,
     /// Whether this is the project's manuscript note — see [`Project::manuscript`]. There is
-    /// only ever one per project.
-    #[serde(default)]
+    /// only ever one per project. Omitted from the save file entirely for every other note,
+    /// rather than writing out `is_manuscript = false` on every single one of them.
+    #[serde(default, skip_serializing_if = "is_false")]
     pub is_manuscript: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
 }
 
 /// On-disk representation of a project file.
@@ -158,6 +163,35 @@ impl Project {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn is_manuscript_is_omitted_from_the_save_file_unless_true() {
+        let file = ProjectFile {
+            notes: vec![
+                Note {
+                    name: "Alice".to_owned(),
+                    source: String::new(),
+                    is_manuscript: false,
+                },
+                Note {
+                    name: "Manuscript".to_owned(),
+                    source: String::new(),
+                    is_manuscript: true,
+                },
+            ],
+        };
+
+        let text = toml::to_string_pretty(&file).unwrap();
+
+        assert!(
+            !text.contains("is_manuscript = false"),
+            "ordinary notes shouldn't carry an explicit is_manuscript key:\n{text}"
+        );
+        assert!(
+            text.contains("is_manuscript = true"),
+            "the manuscript note should still be marked:\n{text}"
+        );
+    }
 
     #[test]
     fn get_or_create_manuscript_creates_it_once_and_reuses_it_after() {
