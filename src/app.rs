@@ -24,6 +24,12 @@ const SEARCH_SHORTCUT: egui::KeyboardShortcut =
     egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::F);
 const CLOSE_PANEL_SHORTCUT: egui::KeyboardShortcut =
     egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::Escape);
+/// Either key opens the delete-confirmation dialog for the currently open note. "Delete" is
+/// labeled "Canc" on Italian keyboards.
+const DELETE_NOTE_SHORTCUTS: [egui::KeyboardShortcut; 2] = [
+    egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::Delete),
+    egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::Backspace),
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CellMode {
@@ -481,6 +487,22 @@ impl eframe::App for App {
             && self.delete_confirm.is_none()
             && !self.search.is_open()
             && ui.input_mut(|input| input.consume_shortcut(&CLOSE_PANEL_SHORTCUT));
+        // Guarded the same way as `close_panel_pressed`, plus requiring the cell isn't mid-edit —
+        // otherwise this would steal Backspace from the note's own multiline `TextEdit` before it
+        // ever saw the keypress.
+        let delete_note_pressed = self
+            .open_cell
+            .as_ref()
+            .is_some_and(|cell| cell.mode == CellMode::Rendered)
+            && self.rename_dialog.is_none()
+            && !self.new_note_dialog
+            && self.delete_confirm.is_none()
+            && !self.search.is_open()
+            && ui.input_mut(|input| {
+                DELETE_NOTE_SHORTCUTS
+                    .iter()
+                    .any(|shortcut| input.consume_shortcut(shortcut))
+            });
 
         if new_project_pressed {
             self.new_project();
@@ -501,6 +523,9 @@ impl eframe::App for App {
         }
         if close_panel_pressed {
             self.open_cell = None;
+        }
+        if delete_note_pressed {
+            self.delete_confirm = self.open_cell.as_ref().map(|cell| cell.note_index);
         }
 
         egui::Panel::top("toolbar").show(ui, |ui| {
@@ -809,7 +834,18 @@ fn draw_cell(
             if icon_button(ui, crate::fonts::icon::PENCIL_SQUARE, "Rename") {
                 action = Some(CellAction::Rename);
             }
-            if icon_button(ui, crate::fonts::icon::TRASH, "Delete") {
+
+            let delete_label = crate::fonts::icon_label(ui, crate::fonts::icon::TRASH, "Delete");
+            let delete_shortcuts = DELETE_NOTE_SHORTCUTS
+                .iter()
+                .map(|shortcut| ui.ctx().format_shortcut(shortcut))
+                .collect::<Vec<_>>()
+                .join(" / ");
+            if ui
+                .small_button(delete_label)
+                .on_hover_text(delete_shortcuts)
+                .clicked()
+            {
                 action = Some(CellAction::Delete);
             }
 
