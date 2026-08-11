@@ -59,6 +59,20 @@ pub fn draw(ui: &mut egui::Ui, settings: &mut Settings, show_settings: &mut bool
     changed |= color_row(ui, "Links", &mut settings.edit.link);
 
     ui.add_space(12.0);
+    ui.label("Autosave");
+    changed |= ui
+        .checkbox(&mut settings.autosave.enabled, "Autosave open project")
+        .changed();
+    if settings.autosave.enabled {
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut settings.autosave.interval_minutes, 1..=60)
+                    .text("Interval (minutes)"),
+            )
+            .changed();
+    }
+
+    ui.add_space(12.0);
     ui.label("Graph physics");
     changed |= simulation_param_row(
         ui,

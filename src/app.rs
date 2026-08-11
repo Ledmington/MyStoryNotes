@@ -38,12 +38,21 @@ const DELETE_NOTE_SHORTCUTS: [egui::KeyboardShortcut; 2] = [
 /// own.
 const SAVE_STATUS_DISPLAY_DURATION: Duration = Duration::from_secs(3);
 
+/// Whether a save was requested by the user or fired on its own from the autosave timer —
+/// [`App::draw_save_status`] labels the popup differently for each.
+#[derive(Clone, Copy)]
+enum SaveKind {
+    Manual,
+    Auto,
+}
+
 /// What [`App::draw_save_status`] shows in the corner popup. `Saved` remembers when it was set
 /// (rather than the draw function taking a snapshot) so the popup's remaining lifetime survives
 /// across frames instead of resetting on every repaint.
 enum SaveStatus {
-    Saving,
+    Saving(SaveKind),
     Saved {
+        kind: SaveKind,
         duration: Duration,
         shown_at: Instant,
     },
@@ -122,9 +131,13 @@ pub struct App {
     /// on the *next* frame — deferred by a frame so the "Saving…" popup set alongside it actually
     /// gets painted before the (synchronous) write happens, rather than being immediately
     /// overwritten by "Saved" within the same frame.
-    pending_save: Option<PathBuf>,
+    pending_save: Option<(PathBuf, SaveKind)>,
     /// The corner popup [`Self::draw_save_status`] shows, if any.
     save_status: Option<SaveStatus>,
+    /// When the project was last saved (by either [`Self::save_project`] or the autosave timer in
+    /// [`Self::check_autosave`]), or `App::new`'s startup time if it hasn't been saved yet this
+    /// session — [`Self::check_autosave`] counts the configured interval from here.
+    last_save_at: Instant,
     note_sort: NoteSort,
     settings: Settings,
     show_settings: bool,
@@ -154,6 +167,7 @@ impl App {
             delete_confirm: None,
             pending_save: None,
             save_status: None,
+            last_save_at: Instant::now(),
             note_sort: NoteSort::Unsorted,
             settings: Settings::load(),
             show_settings: false,
@@ -167,6 +181,9 @@ impl App {
     fn set_project(&mut self, project: Project) {
         self.open_cell = None;
         self.project = Some(project);
+        // Otherwise a project opened long after startup (or long after the previous project was
+        // last saved) could autosave itself within moments of being opened.
+        self.last_save_at = Instant::now();
     }
 
     fn new_project(&mut self) {
@@ -199,7 +216,7 @@ impl App {
         };
 
         if let Some(path) = project.path.clone() {
-            self.request_save(path);
+            self.request_save(path, SaveKind::Manual);
         } else {
             self.save_project_as();
         }
@@ -218,20 +235,48 @@ impl App {
             return;
         };
 
-        self.request_save(path);
+        self.request_save(path, SaveKind::Manual);
+    }
+
+    /// If autosave is enabled and the open project has already been saved at least once (so
+    /// there's a path to autosave to), triggers an autosave once [`Self::last_save_at`] is
+    /// further in the past than the configured interval — or, if it isn't due yet, schedules a
+    /// repaint for exactly when it will be, so the check re-runs on time even with the user
+    /// otherwise idle.
+    fn check_autosave(&mut self, ctx: &egui::Context) {
+        if !self.settings.autosave.enabled || self.pending_save.is_some() {
+            return;
+        }
+
+        let Some(path) = self
+            .project
+            .as_ref()
+            .and_then(|project| project.path.clone())
+        else {
+            return;
+        };
+
+        let interval = Duration::from_secs(u64::from(self.settings.autosave.interval_minutes) * 60);
+        let elapsed = self.last_save_at.elapsed();
+
+        if elapsed >= interval {
+            self.request_save(path, SaveKind::Auto);
+        } else {
+            ctx.request_repaint_after(interval - elapsed);
+        }
     }
 
     /// Queues `path` to be written next frame (see [`Self::pending_save`]) and shows the
-    /// "Saving…" popup right away.
-    fn request_save(&mut self, path: PathBuf) {
-        self.pending_save = Some(path);
-        self.save_status = Some(SaveStatus::Saving);
+    /// "Saving…"/"Auto-saving…" popup right away.
+    fn request_save(&mut self, path: PathBuf, kind: SaveKind) {
+        self.pending_save = Some((path, kind));
+        self.save_status = Some(SaveStatus::Saving(kind));
     }
 
     /// Performs a save queued by [`Self::request_save`] on a previous frame, if any, and updates
-    /// [`Self::save_status`] with the result.
+    /// [`Self::save_status`] and [`Self::last_save_at`] with the result.
     fn process_pending_save(&mut self) {
-        let Some(path) = self.pending_save.take() else {
+        let Some((path, kind)) = self.pending_save.take() else {
             return;
         };
         let Some(project) = &mut self.project else {
@@ -249,7 +294,9 @@ impl App {
                     format_save_duration(duration)
                 );
                 project.path = Some(path);
+                self.last_save_at = Instant::now();
                 self.save_status = Some(SaveStatus::Saved {
+                    kind,
                     duration,
                     shown_at: Instant::now(),
                 });
@@ -270,16 +317,20 @@ impl App {
         };
 
         let text = match status {
-            SaveStatus::Saving => {
+            SaveStatus::Saving(kind) => {
                 // Guarantees a next frame even with no further input, so
                 // `process_pending_save` (called at the top of the *next* frame) actually runs
                 // promptly instead of waiting for the user to move the mouse.
                 ctx.request_repaint();
-                "Saving…".to_owned()
+                match kind {
+                    SaveKind::Manual => "Saving…".to_owned(),
+                    SaveKind::Auto => "Auto-saving…".to_owned(),
+                }
             }
-            SaveStatus::Saved { duration, .. } => {
-                format!("Saved in {}", format_save_duration(*duration))
-            }
+            SaveStatus::Saved { kind, duration, .. } => match kind {
+                SaveKind::Manual => format!("Saved in {}", format_save_duration(*duration)),
+                SaveKind::Auto => format!("Auto-saved in {}", format_save_duration(*duration)),
+            },
         };
 
         if let SaveStatus::Saved { shown_at, .. } = status {
@@ -566,6 +617,7 @@ impl App {
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.process_pending_save();
+        self.check_autosave(ui.ctx());
 
         let visuals = self.settings.ui.to_visuals();
         let font_size = self.settings.font_size.clone();

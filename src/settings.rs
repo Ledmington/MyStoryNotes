@@ -189,9 +189,29 @@ impl Default for SimulationSettings {
     }
 }
 
-/// The app's persisted preferences: the three color palettes, font sizes, and graph physics
-/// parameters editable from the Settings panel. Stored as a single human-readable TOML file at
-/// `~/.my_story_notes`, independent of any story project.
+/// How often the currently open project is saved automatically, editable from the Settings
+/// panel. Only takes effect for a project that has already been saved once (and so has a file to
+/// autosave to) — a brand-new, never-saved project is never autosaved out from under the user
+/// without their having picked a location for it first.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AutosaveSettings {
+    pub enabled: bool,
+    pub interval_minutes: u32,
+}
+
+impl Default for AutosaveSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            interval_minutes: 5,
+        }
+    }
+}
+
+/// The app's persisted preferences: the three color palettes, font sizes, graph physics
+/// parameters, and autosave interval editable from the Settings panel. Stored as a single
+/// human-readable TOML file at `~/.my_story_notes`, independent of any story project.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -200,6 +220,7 @@ pub struct Settings {
     pub edit: EditPalette,
     pub font_size: FontSizes,
     pub simulation: SimulationSettings,
+    pub autosave: AutosaveSettings,
 }
 
 impl Settings {
