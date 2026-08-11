@@ -260,6 +260,13 @@ fn lj_force(delta: Vec2, r_eq: f32, epsilon: f32) -> Vec2 {
 /// the force overall; `falloff_distance` is the distance beyond which it starts fading out (see
 /// below) — callers pass [`SimulationSettings::angular_repulsion`] and
 /// [`SimulationSettings::strong_distance`].
+///
+/// Each pair's push also applies the equal-and-opposite reaction to `center` itself, the same way
+/// [`lj_force`]'s caller applies `+force`/`-force` to its two nodes: `perp_i` and `perp_j` are
+/// perpendicular to two *different* directions, so without a reaction on `center` the two pushes
+/// generally don't cancel out and the interaction injects net momentum into the system every
+/// frame — for a small or asymmetric fan of neighbors that's enough to make the whole graph
+/// visibly drift in one direction rather than stay in one place.
 fn add_angular_balance_forces(
     positions: &[Pos2],
     edges: &[Edge],
@@ -328,6 +335,7 @@ fn add_angular_balance_forces(
 
                 forces[usize::from(i)] -= perp_i * sign * magnitude;
                 forces[usize::from(j)] += perp_j * sign * magnitude;
+                forces[usize::from(center)] += (perp_i - perp_j) * sign * magnitude;
             }
         }
     }
@@ -740,6 +748,43 @@ mod tests {
         assert!(
             forces[2].y < 0.0,
             "neighbor below the axis should be pushed further down"
+        );
+    }
+
+    #[test]
+    fn angular_balance_forces_sum_to_zero_across_the_whole_triple() {
+        // Regression test for a reported bug: a small "star" project (a hub with a few leaves)
+        // kept sliding in one direction instead of settling in place. Root cause was this
+        // function pushing a hub's neighbors apart without ever applying the equal-and-opposite
+        // reaction to the hub itself — `perp_i` and `perp_j` point in different directions for
+        // any pair that isn't perfectly symmetric around `center` (the common case: notably,
+        // `initial_layout` doesn't place a hub at the center of its leaves, just on the same
+        // circle as them), so the two pushes didn't cancel out and every frame injected a little
+        // more net momentum into the whole system.
+        let center = Pos2::new(50.0, -30.0);
+        let positions = [
+            center,
+            Pos2::new(120.0, 10.0),
+            Pos2::new(90.0, -90.0),
+            Pos2::new(-10.0, -60.0),
+        ];
+        let edges = vec![edge(0, 1), edge(0, 2), edge(0, 3)];
+
+        let settings = SimulationSettings::default();
+        let mut forces = vec![Vec2::ZERO; positions.len()];
+        add_angular_balance_forces(
+            &positions,
+            &edges,
+            &mut forces,
+            settings.angular_repulsion,
+            settings.strong_distance,
+        );
+
+        let total = forces.iter().fold(Vec2::ZERO, |acc, &f| acc + f);
+        assert!(
+            total.length() < 1e-3,
+            "net force across the whole interaction should be ~zero (momentum-conserving), \
+             got {total:?} from {forces:?}"
         );
     }
 }
