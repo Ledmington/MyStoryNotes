@@ -64,6 +64,11 @@ Run the test suite:
 cargo test
 ```
 
+Build and run in a container, as an alternative to installing system libraries locally (see the README's "Running in Docker" section for the full `docker run` invocation, since the app is a windowed GUI program and needs a display server forwarded in):
+```bash
+docker build -t my_story_notes -f etc/Dockerfile .
+```
+
 ## Testing
 Unit tests live alongside the code they test, in `#[cfg(test)] mod tests` within each module, and may use private internals freely.
 Integration/end-to-end tests live under `tests/` and exercise the app only through its public API — this is why `src/lib.rs` exists (with `src/main.rs` as a thin binary wrapper around it): a `tests/` file is compiled as a separate crate and can't see anything the lib doesn't expose as `pub`.

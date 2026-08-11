@@ -126,6 +126,33 @@ its public API using fixture project files from
 See [`CLAUDE.md`](CLAUDE.md) for the project's requirements and code style
 guidelines.
 
+### Running in Docker
+
+[`etc/Dockerfile`](etc/Dockerfile) builds a container image as an
+alternative to installing the system libraries above locally. Build it from
+the repository root (it needs the whole source tree, not just `etc/`):
+
+```bash
+docker build -t my_story_notes -f etc/Dockerfile .
+```
+
+MyStoryNotes is a windowed GUI app, so running the container still needs
+access to a display server on the host. On Linux with X11, forward the X11
+socket and grant the container access to it:
+
+```bash
+xhost +local:docker
+docker run --rm -it \
+  -e DISPLAY=$DISPLAY \
+  -v /tmp/.X11-unix:/tmp/.X11-unix:ro \
+  -v "$HOME:/root" \
+  my_story_notes
+```
+
+Mounting `$HOME` to `/root` (the container's default user's home) makes
+your own `.mystorynotes` project files reachable from the in-app file
+dialogs.
+
 ## License
 
 MIT — see [`LICENSE`](LICENSE).
