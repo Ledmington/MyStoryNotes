@@ -11,3 +11,4 @@ pub mod markdown;
 pub mod note_editor;
 pub mod project;
 pub mod settings;
+pub mod settings_panel;

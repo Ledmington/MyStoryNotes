@@ -6,6 +6,7 @@ use crate::{
     markdown, note_editor,
     project::{NoteId, Project},
     settings::Settings,
+    settings_panel,
 };
 
 const FILE_EXTENSION: &str = "mystorynotes";
@@ -110,133 +111,6 @@ impl App {
         }
         self.show_search = true;
         self.search_request_focus = true;
-    }
-
-    /// Draws the color pickers for the Settings panel, saving to `~/.my_story_notes` whenever
-    /// one changes.
-    fn draw_settings(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            ui.heading("Settings");
-
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let label = crate::fonts::icon_label(ui, crate::fonts::icon::TIMES, "Close");
-
-                if ui.small_button(label).clicked() {
-                    self.show_settings = false;
-                }
-            });
-        });
-        ui.separator();
-
-        let mut changed = false;
-
-        ui.label("Themes");
-        ui.horizontal_wrapped(|ui| {
-            for theme in crate::settings::themes() {
-                if ui.button(theme.name).clicked() {
-                    log::info!("Applying '{}' theme", theme.name);
-                    self.settings.apply_theme(&theme);
-                    changed = true;
-                }
-            }
-        });
-
-        ui.add_space(12.0);
-        ui.label("Interface");
-        changed |= font_size_row(ui, "Font size", &mut self.settings.font_size.ui);
-        changed |= color_row(
-            ui,
-            "Window background",
-            &mut self.settings.ui.window_background,
-        );
-        changed |= color_row(
-            ui,
-            "Panel background",
-            &mut self.settings.ui.panel_background,
-        );
-        changed |= color_row(ui, "Text", &mut self.settings.ui.text);
-        changed |= color_row(ui, "Accent", &mut self.settings.ui.accent);
-        changed |= color_row(ui, "Hyperlinks", &mut self.settings.ui.hyperlink);
-
-        ui.add_space(12.0);
-        ui.label("Render mode");
-        changed |= font_size_row(ui, "Font size", &mut self.settings.font_size.render);
-        changed |= color_row(ui, "Heading", &mut self.settings.render.heading);
-        changed |= color_row(ui, "Bold", &mut self.settings.render.bold);
-        changed |= color_row(ui, "Code", &mut self.settings.render.code);
-        changed |= color_row(ui, "Links", &mut self.settings.render.link);
-
-        ui.add_space(12.0);
-        ui.label("Edit mode");
-        changed |= font_size_row(ui, "Font size", &mut self.settings.font_size.edit);
-        changed |= color_row(ui, "Heading", &mut self.settings.edit.heading);
-        changed |= color_row(ui, "Bold", &mut self.settings.edit.bold);
-        changed |= color_row(ui, "Punctuation", &mut self.settings.edit.punctuation);
-        changed |= color_row(ui, "Code", &mut self.settings.edit.code);
-        changed |= color_row(ui, "Links", &mut self.settings.edit.link);
-
-        ui.add_space(12.0);
-        ui.label("Graph physics");
-        changed |= simulation_param_row(
-            ui,
-            "Unconnected distance",
-            "How far apart two notes with no link between them settle.",
-            &mut self.settings.simulation.weak_distance,
-            50.0..=500.0,
-        );
-        changed |= simulation_param_row(
-            ui,
-            "Unconnected strength",
-            "How strongly unconnected notes resist moving away from that distance.",
-            &mut self.settings.simulation.weak_strength,
-            50.0..=2_000.0,
-        );
-        changed |= simulation_param_row(
-            ui,
-            "Linked distance",
-            "How far apart two linked notes settle.",
-            &mut self.settings.simulation.strong_distance,
-            20.0..=300.0,
-        );
-        changed |= simulation_param_row(
-            ui,
-            "Linked strength",
-            "How strongly linked notes resist moving away from that distance.",
-            &mut self.settings.simulation.strong_strength,
-            500.0..=20_000.0,
-        );
-        changed |= simulation_param_row(
-            ui,
-            "Angular spread",
-            "How strongly a note's links fan out around it instead of bunching together.",
-            &mut self.settings.simulation.angular_repulsion,
-            0.0..=2_000.0,
-        );
-        changed |= simulation_param_row(
-            ui,
-            "Damping",
-            "How quickly motion settles down; higher values are stiffer but settle faster.",
-            &mut self.settings.simulation.damping,
-            0.5..=15.0,
-        );
-        changed |= simulation_param_row(
-            ui,
-            "Centering",
-            "How strongly the whole graph is pulled toward the center of the canvas.",
-            &mut self.settings.simulation.centering,
-            0.0..=2.0,
-        );
-
-        ui.add_space(12.0);
-
-        if ui.button("Reset to Defaults").clicked() {
-            self.settings = Settings::default();
-            changed = true;
-        }
-
-        if changed && let Err(error) = self.settings.save() {
-            log::error!("Failed to save settings: {error}");
-        }
     }
 
     fn set_project(&mut self, project: Project) {
@@ -588,7 +462,7 @@ impl eframe::App for App {
             egui::Panel::right("settings")
                 .default_size(280.0)
                 .show(ui, |ui| {
-                    self.draw_settings(ui);
+                    settings_panel::draw(ui, &mut self.settings, &mut self.show_settings);
                 });
         }
 
@@ -904,44 +778,6 @@ fn mode_switch_button(ui: &mut egui::Ui, icon: char, label: &str) -> bool {
     });
 
     clicked
-}
-
-/// A labeled color picker row. Returns whether the color changed this frame.
-fn color_row(ui: &mut egui::Ui, label: &str, color: &mut [u8; 3]) -> bool {
-    let mut changed = false;
-
-    ui.horizontal(|ui| {
-        changed = ui.color_edit_button_srgb(color).changed();
-        ui.label(label);
-    });
-
-    changed
-}
-
-/// A labeled font-size slider row. Returns whether the size changed this frame.
-fn font_size_row(ui: &mut egui::Ui, label: &str, size: &mut f32) -> bool {
-    ui.horizontal(|ui| {
-        ui.add(egui::Slider::new(size, 8.0..=32.0).text(label))
-            .changed()
-    })
-    .inner
-}
-
-/// A labeled slider row for a [`crate::settings::SimulationSettings`] field, with a tooltip
-/// explaining what it does. Returns whether the value changed this frame.
-fn simulation_param_row(
-    ui: &mut egui::Ui,
-    label: &str,
-    tooltip: &str,
-    value: &mut f32,
-    range: std::ops::RangeInclusive<f32>,
-) -> bool {
-    ui.horizontal(|ui| {
-        ui.add(egui::Slider::new(value, range).text(label))
-            .on_hover_text(tooltip)
-            .changed()
-    })
-    .inner
 }
 
 #[cfg(test)]
