@@ -8,5 +8,6 @@ pub mod fonts;
 pub mod graph;
 pub mod logging;
 pub mod markdown;
+pub mod note_editor;
 pub mod project;
 pub mod settings;
