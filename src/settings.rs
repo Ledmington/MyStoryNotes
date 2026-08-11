@@ -9,7 +9,8 @@ pub fn rgb(color: [u8; 3]) -> Color32 {
 }
 
 /// Colors for the app's chrome (panels, buttons, selection, hyperlinks), applied on top of
-/// egui's dark theme every frame.
+/// egui's light or dark theme (matching this palette's own brightness — see
+/// [`UiPalette::to_visuals`]) every frame.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct UiPalette {
@@ -34,7 +35,15 @@ impl Default for UiPalette {
 
 impl UiPalette {
     pub fn to_visuals(&self) -> Visuals {
-        let mut visuals = Visuals::dark();
+        // Buttons and other widget chrome come from egui's own light/dark preset (`self` only
+        // overrides window/panel/text/selection/hyperlink below) — picking the preset that
+        // matches this palette's own brightness keeps that chrome legible instead of always
+        // rendering dark-gray buttons, even under a light custom theme.
+        let mut visuals = if is_light(self.panel_background) {
+            Visuals::light()
+        } else {
+            Visuals::dark()
+        };
         visuals.window_fill = rgb(self.window_background);
         visuals.panel_fill = rgb(self.panel_background);
         visuals.override_text_color = Some(rgb(self.text));
@@ -42,6 +51,13 @@ impl UiPalette {
         visuals.hyperlink_color = rgb(self.hyperlink);
         visuals
     }
+}
+
+/// Whether `color` reads as light overall, by the standard luma formula.
+fn is_light(color: [u8; 3]) -> bool {
+    let luma =
+        0.299 * f32::from(color[0]) + 0.587 * f32::from(color[1]) + 0.114 * f32::from(color[2]);
+    luma > 128.0
 }
 
 /// Base font sizes, in points: the app's chrome (buttons, labels, panels), a rendered note's
@@ -368,5 +384,42 @@ impl Settings {
         self.ui = theme.ui.clone();
         self.render = theme.render.clone();
         self.edit = theme.edit.clone();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression test: `to_visuals` used to build every palette on top of `Visuals::dark()`
+    /// unconditionally, so a light custom theme's buttons and other widget chrome still rendered
+    /// with dark-gray fills instead of matching the palette.
+    #[test]
+    fn to_visuals_picks_dark_mode_or_light_mode_widgets_to_match_the_palette() {
+        let dark = UiPalette {
+            panel_background: [27, 27, 27],
+            ..UiPalette::default()
+        };
+        assert!(dark.to_visuals().dark_mode);
+
+        let light = UiPalette {
+            panel_background: [240, 236, 224],
+            ..UiPalette::default()
+        };
+        assert!(!light.to_visuals().dark_mode);
+    }
+
+    #[test]
+    fn every_built_in_theme_s_widgets_match_its_own_panel_brightness() {
+        for theme in themes() {
+            let visuals = theme.ui.to_visuals();
+            assert_eq!(
+                visuals.dark_mode,
+                !is_light(theme.ui.panel_background),
+                "theme '{}' has a panel background that doesn't match its widget chrome's \
+                 light/dark mode",
+                theme.name
+            );
+        }
     }
 }
