@@ -321,6 +321,11 @@ impl App {
                     response.request_focus();
                 }
 
+                if ui.input(|input| input.key_pressed(egui::Key::Escape)) {
+                    self.rename_dialog = None;
+                    self.rename_name.clear();
+                }
+
                 ui.horizontal(|ui| {
                     if ui.button("Cancel").clicked() {
                         self.rename_dialog = None;
