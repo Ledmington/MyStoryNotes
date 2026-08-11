@@ -68,6 +68,12 @@ pub struct App {
     open_cell: Option<Cell>,
     new_note_dialog: bool,
     new_note_name: String,
+    /// The note being renamed, and the dialog's current text field content, while the rename
+    /// dialog is open.
+    rename_dialog: Option<NoteId>,
+    rename_name: String,
+    /// The note pending a delete-confirmation prompt.
+    delete_confirm: Option<NoteId>,
     note_sort: NoteSort,
     settings: Settings,
     show_settings: bool,
@@ -90,6 +96,9 @@ impl App {
             open_cell: None,
             new_note_dialog: false,
             new_note_name: String::new(),
+            rename_dialog: None,
+            rename_name: String::new(),
+            delete_confirm: None,
             note_sort: NoteSort::Unsorted,
             settings: Settings::load(),
             show_settings: false,
@@ -242,6 +251,128 @@ impl App {
                             && ui.input(|input| input.key_pressed(egui::Key::Enter)))
                     {
                         self.create_note();
+                    }
+                });
+            });
+    }
+
+    /// Renames the note in [`Self::rename_dialog`] to [`Self::rename_name`], following it to its
+    /// (possibly re-sorted) new position — the rename dialog is only ever opened from that note's
+    /// own cell, so it's always the one that should still be showing afterward.
+    fn rename_note(&mut self) {
+        let Some(project) = &mut self.project else {
+            return;
+        };
+        let Some(id) = self.rename_dialog else {
+            return;
+        };
+
+        match project.rename_note(id, &self.rename_name) {
+            Ok(note_index) => {
+                log::info!("Renamed note to '{}'", self.rename_name);
+
+                self.open_cell = Some(Cell {
+                    note_index,
+                    mode: CellMode::Rendered,
+                });
+
+                self.rename_dialog = None;
+                self.rename_name.clear();
+            }
+            Err(error) => {
+                log::error!("Failed to rename note: {error}");
+            }
+        }
+    }
+
+    fn show_rename_dialog(&mut self, ctx: &egui::Context) {
+        if self.rename_dialog.is_none() {
+            return;
+        }
+
+        egui::Window::new("Rename Note")
+            .collapsible(false)
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.label("Name:");
+
+                let response = ui.text_edit_singleline(&mut self.rename_name);
+
+                ui.horizontal(|ui| {
+                    if ui.button("Cancel").clicked() {
+                        self.rename_dialog = None;
+                        self.rename_name.clear();
+                    }
+
+                    let rename = ui.button("Rename").clicked();
+
+                    if rename
+                        || (response.lost_focus()
+                            && ui.input(|input| input.key_pressed(egui::Key::Enter)))
+                    {
+                        self.rename_note();
+                    }
+                });
+            });
+    }
+
+    /// Deletes the note in [`Self::delete_confirm`]. Other notes' links to it are left dangling
+    /// (see [`Project::delete_note`]). If it was the open cell, closes the cell; if some other
+    /// note was open, keeps it open, adjusting for the index shift deletion causes.
+    fn delete_note(&mut self) {
+        let Some(project) = &mut self.project else {
+            return;
+        };
+        let Some(id) = self.delete_confirm else {
+            return;
+        };
+
+        if let Some(note) = project.notes.get(usize::from(id)) {
+            log::info!("Deleted note '{}'", note.name);
+        }
+
+        project.delete_note(id);
+
+        self.open_cell = self.open_cell.take().and_then(|cell| {
+            cell.note_index.after_removing(id).map(|note_index| Cell {
+                note_index,
+                mode: cell.mode,
+            })
+        });
+
+        self.delete_confirm = None;
+    }
+
+    fn show_delete_confirm_dialog(&mut self, ctx: &egui::Context) {
+        let Some(id) = self.delete_confirm else {
+            return;
+        };
+        let Some(project) = &self.project else {
+            self.delete_confirm = None;
+            return;
+        };
+        let Some(name) = project
+            .notes
+            .get(usize::from(id))
+            .map(|note| note.name.clone())
+        else {
+            self.delete_confirm = None;
+            return;
+        };
+
+        egui::Window::new("Delete Note?")
+            .collapsible(false)
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.label(format!("Delete \"{name}\"? This cannot be undone."));
+
+                ui.horizontal(|ui| {
+                    if ui.button("Cancel").clicked() {
+                        self.delete_confirm = None;
+                    }
+
+                    if ui.button("Delete").clicked() {
+                        self.delete_note();
                     }
                 });
             });
@@ -547,15 +678,29 @@ impl eframe::App for App {
             // an upper bound, so that smaller value has to be computed ourselves first.
             let half_window_width = ui.ctx().input(|input| input.viewport_rect().width()) * 0.5;
             let max_note_width = ui.available_width().min(half_window_width);
+            let mut cell_action = None;
             ui.scope(|ui| {
                 ui.set_max_width(max_note_width);
-                draw_cell(ui, project, cell, &self.settings);
+                cell_action = draw_cell(ui, project, cell, &self.settings);
             });
+
+            match cell_action {
+                Some(CellAction::Rename) => {
+                    self.rename_dialog = Some(cell.note_index);
+                    self.rename_name = project.notes[usize::from(cell.note_index)].name.clone();
+                }
+                Some(CellAction::Delete) => {
+                    self.delete_confirm = Some(cell.note_index);
+                }
+                None => {}
+            }
         });
 
         self.draw_notifications(ui.ctx());
 
         self.show_new_note_dialog(ui.ctx());
+        self.show_rename_dialog(ui.ctx());
+        self.show_delete_confirm_dialog(ui.ctx());
 
         if let Some(index) = search::draw(ui.ctx(), self.project.as_ref(), &mut self.search) {
             self.open_cell = Some(Cell {
@@ -566,72 +711,113 @@ impl eframe::App for App {
     }
 }
 
-fn draw_cell(ui: &mut egui::Ui, project: &mut Project, cell: &mut Cell, settings: &Settings) {
+/// An action requested from a note's cell, for the caller to act on — renaming or deleting a
+/// note needs a dialog and touches [`crate::app::App`] state (`draw_cell` only has the one note
+/// it's drawing, not the whole project's UI state), so it's handed back up rather than handled
+/// here.
+enum CellAction {
+    Rename,
+    Delete,
+}
+
+fn draw_cell(
+    ui: &mut egui::Ui,
+    project: &mut Project,
+    cell: &mut Cell,
+    settings: &Settings,
+) -> Option<CellAction> {
     let mut link_clicked = false;
+    let mut action = None;
 
     let response = egui::Frame::group(ui.style())
-        .show(ui, |ui| match cell.mode {
-            CellMode::Rendered => {
-                if mode_switch_button(ui, crate::fonts::icon::PENCIL, "Edit") {
-                    cell.mode = CellMode::Editing;
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                let (icon, label) = match cell.mode {
+                    CellMode::Rendered => (crate::fonts::icon::PENCIL, "Edit"),
+                    CellMode::Editing => (crate::fonts::icon::CHECK, "Done"),
+                };
+                if icon_button(ui, icon, label) {
+                    cell.mode = match cell.mode {
+                        CellMode::Rendered => CellMode::Editing,
+                        CellMode::Editing => CellMode::Rendered,
+                    };
                 }
 
-                let Some(note) = project.notes.get(usize::from(cell.note_index)) else {
-                    return;
-                };
+                if icon_button(ui, crate::fonts::icon::PENCIL_SQUARE, "Rename") {
+                    action = Some(CellAction::Rename);
+                }
+                if icon_button(ui, crate::fonts::icon::TRASH, "Delete") {
+                    action = Some(CellAction::Delete);
+                }
+            });
 
-                let clicked_link = egui::ScrollArea::vertical()
-                    .id_salt(("note_scroll", cell.note_index))
-                    .show(ui, |ui| {
-                        markdown::render(
-                            ui,
-                            &note.source,
-                            &settings.render,
-                            settings.font_size.render,
-                        )
-                    })
-                    .inner;
+            if let Some(note) = project.notes.get(usize::from(cell.note_index))
+                && markdown::title(&note.source).as_deref() != Some(note.name.as_str())
+            {
+                ui.label(
+                    egui::RichText::new(format!("Saved as \"{}\"", note.name))
+                        .italics()
+                        .weak(),
+                );
+            }
 
-                if let Some(target) = clicked_link {
-                    link_clicked = true;
+            match cell.mode {
+                CellMode::Rendered => {
+                    let Some(note) = project.notes.get(usize::from(cell.note_index)) else {
+                        return;
+                    };
 
-                    if let Some(index) = project.notes.iter().position(|note| note.name == target) {
-                        cell.note_index = NoteId::from(index);
-                    } else if is_web_url(&target) {
-                        match webbrowser::open(&target) {
-                            Ok(()) => log::info!("Opened '{target}' in the browser"),
-                            Err(error) => log::error!("Failed to open '{target}': {error}"),
+                    let clicked_link = egui::ScrollArea::vertical()
+                        .id_salt(("note_scroll", cell.note_index))
+                        .show(ui, |ui| {
+                            markdown::render(
+                                ui,
+                                &note.source,
+                                &settings.render,
+                                settings.font_size.render,
+                            )
+                        })
+                        .inner;
+
+                    if let Some(target) = clicked_link {
+                        link_clicked = true;
+
+                        if let Some(index) =
+                            project.notes.iter().position(|note| note.name == target)
+                        {
+                            cell.note_index = NoteId::from(index);
+                        } else if is_web_url(&target) {
+                            match webbrowser::open(&target) {
+                                Ok(()) => log::info!("Opened '{target}' in the browser"),
+                                Err(error) => log::error!("Failed to open '{target}': {error}"),
+                            }
                         }
                     }
                 }
-            }
 
-            CellMode::Editing => {
-                if mode_switch_button(ui, crate::fonts::icon::CHECK, "Done") {
-                    cell.mode = CellMode::Rendered;
-                }
+                CellMode::Editing => {
+                    let Some(note) = project.notes.get_mut(usize::from(cell.note_index)) else {
+                        return;
+                    };
 
-                let Some(note) = project.notes.get_mut(usize::from(cell.note_index)) else {
-                    return;
-                };
+                    let id = ui.make_persistent_id(("note_editor", cell.note_index));
 
-                let id = ui.make_persistent_id(("note_editor", cell.note_index));
+                    let done = egui::ScrollArea::vertical()
+                        .id_salt(("note_scroll", cell.note_index))
+                        .show(ui, |ui| {
+                            note_editor::draw_note_editor(
+                                ui,
+                                &mut note.source,
+                                id,
+                                &settings.edit,
+                                settings.font_size.edit,
+                            )
+                        })
+                        .inner;
 
-                let done = egui::ScrollArea::vertical()
-                    .id_salt(("note_scroll", cell.note_index))
-                    .show(ui, |ui| {
-                        note_editor::draw_note_editor(
-                            ui,
-                            &mut note.source,
-                            id,
-                            &settings.edit,
-                            settings.font_size.edit,
-                        )
-                    })
-                    .inner;
-
-                if done {
-                    cell.mode = CellMode::Rendered;
+                    if done {
+                        cell.mode = CellMode::Rendered;
+                    }
                 }
             }
         })
@@ -640,6 +826,8 @@ fn draw_cell(ui: &mut egui::Ui, project: &mut Project, cell: &mut Cell, settings
     if !link_clicked && cell.mode == CellMode::Rendered && response.clicked() {
         cell.mode = CellMode::Editing;
     }
+
+    action
 }
 
 /// Whether a clicked link's destination looks like a web address rather than another note's
@@ -713,17 +901,11 @@ fn sort_button(
     ui.selectable_label(active, text).clicked()
 }
 
-/// A small icon-labeled button in its own row, for switching a cell's mode (Edit/Done). Returns
+/// A small icon-labeled button, for a cell's action row (mode switch, rename, delete). Returns
 /// whether it was clicked this frame.
-fn mode_switch_button(ui: &mut egui::Ui, icon: char, label: &str) -> bool {
-    let mut clicked = false;
-
-    ui.horizontal(|ui| {
-        let label = crate::fonts::icon_label(ui, icon, label);
-        clicked = ui.small_button(label).clicked();
-    });
-
-    clicked
+fn icon_button(ui: &mut egui::Ui, icon: char, label: &str) -> bool {
+    let label = crate::fonts::icon_label(ui, icon, label);
+    ui.small_button(label).clicked()
 }
 
 #[cfg(test)]

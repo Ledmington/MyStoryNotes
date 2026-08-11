@@ -1,6 +1,6 @@
 use egui::text::{LayoutJob, TextFormat};
 use egui::{Color32, Stroke, Ui};
-use pulldown_cmark::{Event, HeadingLevel, Parser, Tag, TagEnd};
+use pulldown_cmark::{Event, HeadingLevel, LinkType, Parser, Tag, TagEnd};
 
 use crate::fonts;
 use crate::settings::{self, EditPalette, RenderPalette};
@@ -47,6 +47,63 @@ pub fn extract_links(source: &str) -> Vec<String> {
             _ => None,
         })
         .collect()
+}
+
+/// The plain text of `source`'s first heading, if it has one — e.g. `# Mira Solenne` gives
+/// `Some("Mira Solenne")`. Used to tell whether a note's displayed title still matches its actual
+/// (linking) name, since nothing keeps the two in sync automatically: a rename only updates the
+/// name, not whatever heading text happens to be written in the note's own source.
+pub fn title(source: &str) -> Option<String> {
+    collect_blocks(source)
+        .into_iter()
+        .find_map(|block| match block {
+            Block::Heading { lines, .. } => Some(
+                lines
+                    .iter()
+                    .flatten()
+                    .map(|span| span.text.as_str())
+                    .collect(),
+            ),
+            Block::Paragraph { .. } => None,
+        })
+}
+
+/// Rewrites every inline markdown link in `source` whose destination is exactly `old_name` so it
+/// points to `new_name` instead, leaving the link's visible label, every other link, and
+/// everywhere else `old_name` might appear in plain text completely untouched. Used to keep a
+/// note's incoming links pointing at it correctly when it's renamed.
+pub fn rename_links(source: &str, old_name: &str, new_name: &str) -> String {
+    let mut ranges: Vec<std::ops::Range<usize>> = Parser::new(source)
+        .into_offset_iter()
+        .filter_map(|(event, span)| match event {
+            Event::Start(Tag::Link {
+                link_type: LinkType::Inline,
+                dest_url,
+                ..
+            }) if dest_url.as_ref() == old_name => {
+                // The event's span covers the whole `[label](destination)`, not just the
+                // destination — but since inline links place the destination immediately before
+                // the closing `)`, and a matching `dest_url` means it's the last thing in the
+                // span that could possibly equal `old_name`, searching from the end finds exactly
+                // it (however it's written: bare, or wrapped in `<...>`) without needing to
+                // understand that syntax at all.
+                let tag_text = &source[span.clone()];
+                tag_text.rfind(old_name).map(|relative| {
+                    let start = span.start + relative;
+                    start..start + old_name.len()
+                })
+            }
+            _ => None,
+        })
+        .collect();
+
+    ranges.sort_by_key(|range| range.start);
+
+    let mut result = source.to_owned();
+    for range in ranges.into_iter().rev() {
+        result.replace_range(range, new_name);
+    }
+    result
 }
 
 /// Renders `source` as markdown into `ui`, using `palette` for headings/bold/code/link colors
@@ -582,6 +639,63 @@ mod tests {
     fn extract_links_ignores_underline_markup() {
         let links = extract_links("plain [text](Target) and <u>underlined</u> text");
         assert_eq!(links, vec!["Target".to_owned()]);
+    }
+
+    #[test]
+    fn title_returns_the_first_heading_as_plain_text() {
+        assert_eq!(
+            title("# Mira Solenne\n\nSome body text."),
+            Some("Mira Solenne".to_owned())
+        );
+    }
+
+    #[test]
+    fn title_flattens_inline_styling_in_the_heading() {
+        assert_eq!(
+            title("## The *Cartographer's* Debt\n\nBody."),
+            Some("The Cartographer's Debt".to_owned())
+        );
+    }
+
+    #[test]
+    fn title_is_none_without_a_heading() {
+        assert_eq!(title("just a paragraph, no heading"), None);
+        assert_eq!(title(""), None);
+    }
+
+    #[test]
+    fn rename_links_retargets_a_bare_destination_without_touching_the_label() {
+        let renamed = rename_links("see [Bob](Bob) over there", "Bob", "Robert");
+        assert_eq!(renamed, "see [Bob](Robert) over there");
+    }
+
+    #[test]
+    fn rename_links_retargets_an_angle_bracketed_destination() {
+        let renamed = rename_links(
+            "her brother [Dorin Ashe](<Dorin Ashe>) escaped",
+            "Dorin Ashe",
+            "Dorin Vasse",
+        );
+        assert_eq!(renamed, "her brother [Dorin Ashe](<Dorin Vasse>) escaped");
+    }
+
+    #[test]
+    fn rename_links_updates_every_matching_link_and_ignores_others() {
+        let renamed = rename_links(
+            "[Bob](Bob) and [Bob again](Bob) but not [Alice](Alice)",
+            "Bob",
+            "Robert",
+        );
+        assert_eq!(
+            renamed,
+            "[Bob](Robert) and [Bob again](Robert) but not [Alice](Alice)"
+        );
+    }
+
+    #[test]
+    fn rename_links_leaves_plain_text_mentions_of_the_name_alone() {
+        let renamed = rename_links("Bob said hello. [Bob](Bob) waved back.", "Bob", "Robert");
+        assert_eq!(renamed, "Bob said hello. [Bob](Robert) waved back.");
     }
 
     #[test]

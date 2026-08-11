@@ -30,6 +30,8 @@ pub mod icon {
     pub const ARROW_LEFT: char = '\u{f060}';
     pub const ARROW_RIGHT: char = '\u{f061}';
     pub const BOOK: char = '\u{f02d}';
+    pub const PENCIL_SQUARE: char = '\u{f044}';
+    pub const TRASH: char = '\u{f1f8}';
 }
 
 /// Registers the fonts this app bundles: a serif family (render mode) and a monospace family

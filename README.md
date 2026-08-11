@@ -59,6 +59,14 @@ copied anywhere and run on its own.
 - **+ New Note** creates a note; click any note in the sidebar to open it.
 - Each open note toggles between a rendered Markdown view and a raw editing
   view.
+- An open note's **Rename** and **Delete** buttons sit next to its
+  Edit/Done button. Renaming rewrites every other note's links to it, so the
+  graph stays intact; deleting does not — links to a deleted note are left
+  dangling, the same as a link to a note that never existed.
+- A note's name (used for linking and shown in the sidebar/graph) doesn't
+  have to match its own heading text. If they differ — e.g. right after
+  renaming it, since that doesn't touch the note's own `# Heading` — the
+  open note shows `Saved as "..."` with its actual name as a reminder.
 - Link one note to another with a normal Markdown link whose destination is
   the other note's exact name, e.g. `[my sister](Alice)` to link to a note
   named "Alice". Linked notes automatically show up connected in the graph
