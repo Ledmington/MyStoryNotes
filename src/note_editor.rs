@@ -150,6 +150,13 @@ fn char_to_byte_index(s: &str, char_index: usize) -> usize {
         .map_or(s.len(), |(byte_index, _)| byte_index)
 }
 
+/// Switches back to render mode without inserting a newline. Consumed before `TextEdit::show()`
+/// for the same reason as the format shortcuts above — egui's multiline `TextEdit` otherwise
+/// treats a plain Enter as "insert newline", and Ctrl+Enter would insert one too if the widget saw
+/// it first.
+const SWITCH_TO_RENDER_SHORTCUT: egui::KeyboardShortcut =
+    egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::Enter);
+
 /// Draws the raw-source editor for a note's `source` at the given persistent `id`.
 ///
 /// Applies any pending `InlineFormat` shortcut *before* handing input to [`egui::TextEdit`],
@@ -158,7 +165,8 @@ fn char_to_byte_index(s: &str, char_index: usize) -> usize {
 /// here for Hyperlink and Underline — so if the widget saw the keypress first, it would delete the
 /// selection *in addition to* whatever we did with it. Consuming the shortcut first removes the
 /// event from the input queue, so by the time `TextEdit::show()` runs, the key press is already
-/// gone and its built-in binding never fires. Returns whether the widget lost focus this frame.
+/// gone and its built-in binding never fires. Returns whether the widget lost focus this frame, or
+/// Ctrl+Enter was pressed — either way, the caller should switch back to render mode.
 pub fn draw_note_editor(
     ui: &mut egui::Ui,
     source: &mut String,
@@ -166,7 +174,9 @@ pub fn draw_note_editor(
     edit: &EditPalette,
     edit_size: f32,
 ) -> bool {
-    if ui.memory(|memory| memory.has_focus(id))
+    let has_focus = ui.memory(|memory| memory.has_focus(id));
+
+    if has_focus
         && let Some(format) = InlineFormat::consume_pressed(ui)
         && let Some(mut state) = egui::widgets::text_edit::TextEditState::load(ui.ctx(), id)
         && let Some(cursor_range) = state.cursor.char_range()
@@ -187,6 +197,9 @@ pub fn draw_note_editor(
         state.store(ui.ctx(), id);
     }
 
+    let switch_to_render =
+        has_focus && ui.input_mut(|input| input.consume_shortcut(&SWITCH_TO_RENDER_SHORTCUT));
+
     let mut layouter = |ui: &egui::Ui, buf: &dyn egui::TextBuffer, wrap_width: f32| {
         let mut layout_job = markdown::highlight(ui, buf.as_str(), edit, edit_size);
         layout_job.wrap.max_width = wrap_width;
@@ -200,7 +213,7 @@ pub fn draw_note_editor(
         .layouter(&mut layouter)
         .show(ui);
 
-    output.response.lost_focus()
+    output.response.lost_focus() || switch_to_render
 }
 
 #[cfg(test)]
@@ -339,6 +352,53 @@ mod tests {
     }
 
     #[test]
+    fn ctrl_enter_reports_done_without_inserting_a_newline() {
+        let ctx = egui::Context::default();
+        crate::fonts::install(&ctx);
+        let id = egui::Id::new("test_ctrl_enter_note_editor");
+        let mut source = "hello world".to_owned();
+
+        run_note_editor_frame(&ctx, &mut source, id, 0.0, None);
+        let done = run_note_editor_frame(
+            &ctx,
+            &mut source,
+            id,
+            0.0,
+            Some(ctrl_key_event(egui::Key::Enter, false)),
+        );
+
+        assert!(done, "Ctrl+Enter should report the editor as done");
+        assert_eq!(source, "hello world");
+    }
+
+    #[test]
+    fn plain_enter_inserts_a_newline_instead_of_reporting_done() {
+        let ctx = egui::Context::default();
+        crate::fonts::install(&ctx);
+        let id = egui::Id::new("test_plain_enter_note_editor");
+        let mut source = "hello world".to_owned();
+
+        run_note_editor_frame(&ctx, &mut source, id, 0.0, None);
+        set_note_editor_selection(&ctx, id, 11..11);
+        let done = run_note_editor_frame(
+            &ctx,
+            &mut source,
+            id,
+            0.0,
+            Some(egui::Event::Key {
+                key: egui::Key::Enter,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::default(),
+            }),
+        );
+
+        assert!(!done, "plain Enter should not report the editor as done");
+        assert_eq!(source, "hello world\n");
+    }
+
+    #[test]
     fn ctrl_k_turns_the_selection_into_a_hyperlink_instead_of_deleting_the_rest_of_the_line() {
         let source = press_ctrl_key_in_note_editor("see also world", 9..14, egui::Key::K);
         assert_eq!(source, "see also [world]()");
@@ -437,25 +497,30 @@ mod tests {
     }
 
     /// Runs one frame of [`draw_note_editor`] against a persistent, focused widget `id`, at
-    /// simulated `time` (seconds), optionally delivering `event`.
+    /// simulated `time` (seconds), optionally delivering `event`. Returns whatever
+    /// `draw_note_editor` returned for that frame.
     fn run_note_editor_frame(
         ctx: &egui::Context,
         source: &mut String,
         id: egui::Id,
         time: f64,
         event: Option<egui::Event>,
-    ) {
+    ) -> bool {
         let raw_input = egui::RawInput {
             time: Some(time),
             events: event.into_iter().collect(),
             ..Default::default()
         };
 
+        let mut done = false;
+
         ctx.run_ui(raw_input, |ui| {
             ui.memory_mut(|memory| memory.request_focus(id));
-            draw_note_editor(ui, source, id, &EditPalette::default(), 14.0);
+            done = draw_note_editor(ui, source, id, &EditPalette::default(), 14.0);
         })
         .drop_without_applying_deltas();
+
+        done
     }
 
     /// Directly overwrites the persisted selection for `id`, standing in for a mouse drag.
