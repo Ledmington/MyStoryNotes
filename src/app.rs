@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use eframe::egui;
@@ -180,6 +180,9 @@ impl App {
 
     fn set_project(&mut self, project: Project) {
         self.open_cell = None;
+        if let Some(path) = project.path.clone() {
+            self.record_recent_project(path);
+        }
         self.project = Some(project);
         // Otherwise a project opened long after startup (or long after the previous project was
         // last saved) could autosave itself within moments of being opened.
@@ -199,14 +202,43 @@ impl App {
             return;
         };
 
-        match Project::open(path) {
+        self.open_project_from(path);
+    }
+
+    /// Opens the project at `path`, e.g. from the file picker in [`Self::open_project`] or a
+    /// click in the "Open Recent Project" menu. On failure, drops `path` from the recent-projects
+    /// list (via [`Self::forget_recent_project`]) — the most likely cause is the file having
+    /// moved or been deleted since it was last opened.
+    fn open_project_from(&mut self, path: PathBuf) {
+        match Project::open(path.clone()) {
             Ok(project) => {
                 log::info!("Opened project from {:?}", project.path);
                 self.set_project(project);
             }
             Err(error) => {
                 log::error!("Failed to open project: {error}");
+                self.forget_recent_project(&path);
             }
+        }
+    }
+
+    /// Records `path` as the most recently used project (see
+    /// [`Settings::record_recent_project`]) and persists it immediately, so the "Open Recent
+    /// Project" list survives a restart even if the user quits without otherwise touching
+    /// Settings.
+    fn record_recent_project(&mut self, path: PathBuf) {
+        self.settings.record_recent_project(path);
+        if let Err(error) = self.settings.save() {
+            log::error!("Failed to save settings: {error}");
+        }
+    }
+
+    /// Drops `path` from the recent-projects list (see [`Settings::forget_recent_project`]) and
+    /// persists the change immediately.
+    fn forget_recent_project(&mut self, path: &Path) {
+        self.settings.forget_recent_project(path);
+        if let Err(error) = self.settings.save() {
+            log::error!("Failed to save settings: {error}");
         }
     }
 
@@ -285,6 +317,7 @@ impl App {
         };
 
         let start = Instant::now();
+        let mut saved_path = None;
 
         match project.save(&path) {
             Ok(()) => {
@@ -293,18 +326,23 @@ impl App {
                     "Saved project to {path:?} in {}",
                     format_save_duration(duration)
                 );
-                project.path = Some(path);
+                project.path = Some(path.clone());
                 self.last_save_at = Instant::now();
                 self.save_status = Some(SaveStatus::Saved {
                     kind,
                     duration,
                     shown_at: Instant::now(),
                 });
+                saved_path = Some(path);
             }
             Err(error) => {
                 log::error!("Failed to save project: {error}");
                 self.save_status = None;
             }
+        }
+
+        if let Some(path) = saved_path {
+            self.record_recent_project(path);
         }
     }
 
@@ -703,6 +741,32 @@ impl eframe::App for App {
                     .clicked()
                 {
                     self.open_project();
+                }
+
+                if !self.settings.recent_projects.is_empty() {
+                    let mut recent_clicked = None;
+
+                    ui.menu_button("Open Recent Project", |ui| {
+                        for path in &self.settings.recent_projects {
+                            let label = path
+                                .file_name()
+                                .map(|name| name.to_string_lossy().into_owned())
+                                .unwrap_or_else(|| path.display().to_string());
+
+                            if ui
+                                .button(label)
+                                .on_hover_text(path.display().to_string())
+                                .clicked()
+                            {
+                                recent_clicked = Some(path.clone());
+                                ui.close();
+                            }
+                        }
+                    });
+
+                    if let Some(path) = recent_clicked {
+                        self.open_project_from(path);
+                    }
                 }
 
                 if self.project.is_some() {

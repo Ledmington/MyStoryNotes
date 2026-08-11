@@ -1,4 +1,7 @@
-use std::{fs, io, path::PathBuf};
+use std::{
+    fs, io,
+    path::{Path, PathBuf},
+};
 
 use egui::{Color32, Visuals};
 use serde::{Deserialize, Serialize};
@@ -209,9 +212,13 @@ impl Default for AutosaveSettings {
     }
 }
 
+/// How many entries [`Settings::record_recent_project`] keeps in [`Settings::recent_projects`].
+const RECENT_PROJECTS_LIMIT: usize = 10;
+
 /// The app's persisted preferences: the three color palettes, font sizes, graph physics
-/// parameters, and autosave interval editable from the Settings panel. Stored as a single
-/// human-readable TOML file at `~/.my_story_notes`, independent of any story project.
+/// parameters, autosave interval, and recently opened projects, all editable (or, for the
+/// latter, at least clickable) from the main window. Stored as a single human-readable TOML file
+/// at `~/.my_story_notes`, independent of any story project.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -221,6 +228,25 @@ pub struct Settings {
     pub font_size: FontSizes,
     pub simulation: SimulationSettings,
     pub autosave: AutosaveSettings,
+    /// Most-recently-used project paths first, for the "Open Recent Project" menu.
+    pub recent_projects: Vec<PathBuf>,
+}
+
+impl Settings {
+    /// Records `path` as the most recently used project: moves it to the front if already
+    /// present rather than duplicating it, and drops the oldest entry once there are more than
+    /// `RECENT_PROJECTS_LIMIT`.
+    pub fn record_recent_project(&mut self, path: PathBuf) {
+        self.recent_projects.retain(|existing| existing != &path);
+        self.recent_projects.insert(0, path);
+        self.recent_projects.truncate(RECENT_PROJECTS_LIMIT);
+    }
+
+    /// Drops `path` from the recent-projects list, e.g. after it failed to open because the file
+    /// has since moved or been deleted.
+    pub fn forget_recent_project(&mut self, path: &Path) {
+        self.recent_projects.retain(|existing| existing != path);
+    }
 }
 
 impl Settings {
@@ -442,5 +468,55 @@ mod tests {
                 theme.name
             );
         }
+    }
+
+    #[test]
+    fn record_recent_project_moves_an_existing_entry_to_the_front_instead_of_duplicating_it() {
+        let mut settings = Settings::default();
+        settings.record_recent_project(PathBuf::from("a.mystorynotes"));
+        settings.record_recent_project(PathBuf::from("b.mystorynotes"));
+        settings.record_recent_project(PathBuf::from("a.mystorynotes"));
+
+        assert_eq!(
+            settings.recent_projects,
+            vec![
+                PathBuf::from("a.mystorynotes"),
+                PathBuf::from("b.mystorynotes"),
+            ]
+        );
+    }
+
+    #[test]
+    fn record_recent_project_drops_the_oldest_entry_past_the_limit() {
+        let mut settings = Settings::default();
+
+        for i in 0..RECENT_PROJECTS_LIMIT + 1 {
+            settings.record_recent_project(PathBuf::from(format!("{i}.mystorynotes")));
+        }
+
+        assert_eq!(settings.recent_projects.len(), RECENT_PROJECTS_LIMIT);
+        assert!(
+            !settings
+                .recent_projects
+                .contains(&PathBuf::from("0.mystorynotes"))
+        );
+        assert_eq!(
+            settings.recent_projects[0],
+            PathBuf::from(format!("{RECENT_PROJECTS_LIMIT}.mystorynotes"))
+        );
+    }
+
+    #[test]
+    fn forget_recent_project_removes_only_the_matching_entry() {
+        let mut settings = Settings::default();
+        settings.record_recent_project(PathBuf::from("a.mystorynotes"));
+        settings.record_recent_project(PathBuf::from("b.mystorynotes"));
+
+        settings.forget_recent_project(&PathBuf::from("a.mystorynotes"));
+
+        assert_eq!(
+            settings.recent_projects,
+            vec![PathBuf::from("b.mystorynotes")]
+        );
     }
 }
