@@ -106,13 +106,6 @@ pub fn draw(ui: &mut egui::Ui, settings: &mut Settings, show_settings: &mut bool
         );
         changed |= simulation_param_row(
             ui,
-            "Angular spread",
-            "How strongly a note's links fan out around it instead of bunching together.",
-            &mut settings.simulation.angular_repulsion,
-            0.0..=2_000.0,
-        );
-        changed |= simulation_param_row(
-            ui,
             "Damping",
             "How quickly motion settles down; higher values are stiffer but settle faster.",
             &mut settings.simulation.damping,

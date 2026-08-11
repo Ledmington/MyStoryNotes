@@ -167,11 +167,11 @@ pub struct SimulationSettings {
     pub strong_distance: f32,
     /// How strongly linked notes resist drifting away from [`Self::strong_distance`].
     pub strong_strength: f32,
-    /// How strongly a note's outgoing links push each other apart angularly, so they fan out
-    /// around it instead of bunching together.
-    pub angular_repulsion: f32,
     /// How quickly motion settles down; higher values reach a resting layout faster but can look
-    /// stiffer while animating.
+    /// stiffer while animating. Also what keeps a densely-interconnected cluster of notes (which
+    /// can't simultaneously satisfy every pairwise equilibrium distance in 2D, e.g. four notes
+    /// all linked to each other) from gently drifting between near-equivalent shapes forever —
+    /// high enough damping dissipates that residual motion fast enough to lock into one of them.
     pub damping: f32,
     /// How strongly the whole graph is pulled toward the center, keeping it from drifting off
     /// (or expanding off) the canvas.
@@ -185,8 +185,7 @@ impl Default for SimulationSettings {
             weak_strength: 600.0,
             strong_distance: 100.0,
             strong_strength: 6_000.0,
-            angular_repulsion: 200.0,
-            damping: 5.0,
+            damping: 11.0,
             centering: 0.4,
         }
     }

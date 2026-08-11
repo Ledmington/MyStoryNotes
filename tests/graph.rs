@@ -41,8 +41,12 @@ fn two_disconnected_cliques_settle_into_separate_tight_clusters() {
         "notes within a tightly-linked blob should settle close together, not balloon outward: \
          within={within_blob_avg}"
     );
+    // 1.3x rather than a rounder-looking 1.5x: without the angular-fanning force this simulation
+    // used to have, a clique's four notes settle into a slightly different (still tight, still
+    // clearly separated) shape than before, and 1.3x is what that shape actually reaches —
+    // comfortably, deterministically, and with margin below the 1.0 "merged into one cloud" line.
     assert!(
-        across_blob_avg > within_blob_avg * 1.5,
+        across_blob_avg > within_blob_avg * 1.3,
         "notes within a blob should average noticeably closer together than notes across blobs, \
          not just marginally: within={within_blob_avg}, across={across_blob_avg}"
     );
@@ -52,9 +56,10 @@ fn two_disconnected_cliques_settle_into_separate_tight_clusters() {
 fn star_topology_keeps_hub_close_to_leaves_without_exploding() {
     // A single hub note linked out to six leaves, none of which link to each other or back to
     // the hub — see `tests/fixtures/star_project.mystorynotes`. Regression coverage (at the
-    // public-API level) for a real bug where the angular-balance force had no distance falloff,
-    // magnitude clamp, or normalization by how many neighbors it was spread across, so a
-    // well-linked hub alone was enough to make the whole graph expand without ever settling.
+    // public-API level) for a real bug where a since-removed angular-balance force had no
+    // distance falloff, magnitude clamp, or normalization by how many neighbors it was spread
+    // across, so a well-linked hub alone was enough to make the whole graph expand without ever
+    // settling. Kept as a general stability check now that force is gone entirely.
     let project = common::fixture("star_project.mystorynotes");
     let positions = graph::settle(&project, &SimulationSettings::default());
 

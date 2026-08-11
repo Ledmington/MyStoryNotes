@@ -11,13 +11,16 @@ const MIN_DIST: f32 = 1.0;
 const MAX_FORCE: f32 = 20_000.0;
 const MAX_DT: f32 = 1.0 / 20.0;
 
-/// Below this angle (radians) between two outgoing neighbors, [`add_angular_balance_forces`]
-/// treats them as already maximally spread apart — a numerical-stability floor, not a
-/// user-tunable "feel" parameter, so it isn't exposed in [`SimulationSettings`].
-const MIN_ANGLE: f32 = 0.05;
-
 /// Below this squared speed a node is considered settled.
 const REST_VELOCITY_SQ: f32 = 4.0;
+
+/// How many consecutive at-rest steps [`Simulation::step`] requires before it reports the graph
+/// as settled, rather than trusting a single step's instantaneous reading. A densely-linked
+/// cluster of notes that can't simultaneously satisfy every pairwise equilibrium distance in 2D
+/// (e.g. four notes all linked to each other) can have every node's speed dip under
+/// [`REST_VELOCITY_SQ`] at once while passing between two competing arrangements, without
+/// actually being done evolving.
+const RESTING_STEPS_REQUIRED: u32 = 60;
 
 /// A node's physics state: where it is and how fast it's moving.
 struct NodeState {
@@ -37,6 +40,10 @@ pub struct Simulation {
     /// [`Project::create_note`]'s re-sorting, unlike [`NoteId`]) rather than [`Edge`] itself —
     /// compared on the next call purely to detect whether the edge set has changed.
     known_edges: HashSet<(String, String)>,
+    /// How many consecutive calls to `step` have found every node at rest — see
+    /// [`RESTING_STEPS_REQUIRED`]. Reset whenever `sync` recomputes the layout, since positions
+    /// (and so velocities) genuinely jump at that point.
+    resting_streak: u32,
 }
 
 impl Simulation {
@@ -82,14 +89,16 @@ impl Simulation {
                     )
                 })
                 .collect();
+            self.resting_streak = 0;
         }
 
         self.known_edges = current_edges;
     }
 
-    /// Advances the simulation by `dt` seconds under the force model set out in [`lj_force`] and
-    /// [`add_angular_balance_forces`] below, tuned by `settings`, and returns whether any node is
-    /// still moving fast enough to be worth another repaint.
+    /// Advances the simulation by `dt` seconds under the force model set out in [`lj_force`]
+    /// below, tuned by `settings`, and returns whether the graph is still worth another repaint —
+    /// true as long as any node is moving fast enough, plus [`RESTING_STEPS_REQUIRED`] more steps
+    /// once every node has dipped below that, to debounce a momentary lull from true rest.
     pub(super) fn step(
         &mut self,
         notes: &[Note],
@@ -143,14 +152,6 @@ impl Simulation {
             }
         }
 
-        add_angular_balance_forces(
-            &positions,
-            edges,
-            &mut forces,
-            settings.angular_repulsion,
-            settings.strong_distance,
-        );
-
         for (force, position) in forces.iter_mut().zip(&positions) {
             *force -= position.to_vec2() * settings.centering;
         }
@@ -179,7 +180,13 @@ impl Simulation {
             }
         }
 
-        moving
+        if moving {
+            self.resting_streak = 0;
+        } else {
+            self.resting_streak += 1;
+        }
+
+        moving || self.resting_streak < RESTING_STEPS_REQUIRED
     }
 
     /// Current positions in `notes` order. Every name in `notes` must already be present, i.e.
@@ -216,94 +223,6 @@ fn lj_force(delta: Vec2, r_eq: f32, epsilon: f32) -> Vec2 {
     direction * magnitude
 }
 
-/// Adds a tangential force to every pair of a node's *outgoing* neighbors that pushes them apart
-/// around that node, so a note's outgoing links tend to fan out rather than bunch up in one
-/// direction. The force grows as the angle between two neighbors shrinks and vanishes as it
-/// approaches a straight line (they're already as spread out as a pair can be). `strength` scales
-/// the force overall; `falloff_distance` is the distance beyond which it starts fading out (see
-/// below) — callers pass [`SimulationSettings::angular_repulsion`] and
-/// [`SimulationSettings::strong_distance`].
-///
-/// Each pair's push also applies the equal-and-opposite reaction to `center` itself, the same way
-/// [`lj_force`]'s caller applies `+force`/`-force` to its two nodes: `perp_i` and `perp_j` are
-/// perpendicular to two *different* directions, so without a reaction on `center` the two pushes
-/// generally don't cancel out and the interaction injects net momentum into the system every
-/// frame — for a small or asymmetric fan of neighbors that's enough to make the whole graph
-/// visibly drift in one direction rather than stay in one place.
-fn add_angular_balance_forces(
-    positions: &[Pos2],
-    edges: &[Edge],
-    forces: &mut [Vec2],
-    strength: f32,
-    falloff_distance: f32,
-) {
-    let n = positions.len();
-    let mut outgoing: Vec<Vec<NoteId>> = vec![Vec::new(); n];
-
-    for edge in edges {
-        if edge.from != edge.to {
-            outgoing[usize::from(edge.from)].push(edge.to);
-        }
-    }
-
-    for (center, neighbors) in outgoing.iter().enumerate() {
-        let center = NoteId::from(center);
-
-        // A node with `k` outgoing edges produces C(k, 2) pairs, and each neighbor sits in `k -
-        // 1` of them; without normalizing by that, a highly-linked hub would push its whole
-        // neighborhood out much harder than a hub with only two or three links, purely because it
-        // has more pairs to sum, not because any single pair is more crowded.
-        let pairs_per_neighbor = (neighbors.len() as f32 - 1.0).max(1.0);
-
-        for a in 0..neighbors.len() {
-            for b in (a + 1)..neighbors.len() {
-                let (i, j) = (neighbors[a], neighbors[b]);
-
-                let offset_i = positions[usize::from(i)] - positions[usize::from(center)];
-                let offset_j = positions[usize::from(j)] - positions[usize::from(center)];
-                let (len_i, len_j) = (offset_i.length(), offset_j.length());
-
-                if len_i < MIN_DIST || len_j < MIN_DIST {
-                    continue;
-                }
-
-                let dir_i = offset_i / len_i;
-                let dir_j = offset_j / len_j;
-
-                let theta = dir_i.dot(dir_j).clamp(-1.0, 1.0).acos();
-                if theta >= std::f32::consts::PI - 1e-3 {
-                    continue;
-                }
-
-                // Fades out as the neighbors get farther from `center`, same as the LJ forces
-                // above: without this, the force stays at full strength no matter how large the
-                // graph has already grown, which is enough on its own to pump in more energy than
-                // damping can remove and make the whole graph expand without bound.
-                let avg_len = (len_i + len_j) * 0.5;
-                let falloff = (falloff_distance / avg_len).min(1.0);
-
-                let raw_magnitude =
-                    strength * (1.0 / theta.max(MIN_ANGLE) - 1.0 / std::f32::consts::PI);
-                let magnitude =
-                    (raw_magnitude * falloff / pairs_per_neighbor).clamp(0.0, MAX_FORCE);
-                if magnitude <= 0.0 {
-                    continue;
-                }
-
-                let cross = dir_i.x * dir_j.y - dir_i.y * dir_j.x;
-                let sign = if cross >= 0.0 { 1.0 } else { -1.0 };
-
-                let perp_i = Vec2::new(-dir_i.y, dir_i.x);
-                let perp_j = Vec2::new(-dir_j.y, dir_j.x);
-
-                forces[usize::from(i)] -= perp_i * sign * magnitude;
-                forces[usize::from(j)] += perp_j * sign * magnitude;
-                forces[usize::from(center)] += (perp_i - perp_j) * sign * magnitude;
-            }
-        }
-    }
-}
-
 /// Runs the force-directed layout for every note in `project`, from a fresh [`Simulation`], until
 /// it settles (see `Simulation::step`) or a generous step budget elapses, and returns each
 /// note's final world-space position in `project.notes` order. Exposed so the physics [`super::draw`]
@@ -313,7 +232,7 @@ pub fn settle(project: &Project, settings: &SimulationSettings) -> Vec<Pos2> {
     let mut sim = Simulation::new();
     sim.sync(&project.notes, &edges);
 
-    for _ in 0..1800 {
+    for _ in 0..7200 {
         if !sim.step(&project.notes, &edges, 1.0 / 60.0, settings) {
             break;
         }
@@ -442,10 +361,14 @@ mod tests {
 
     /// Steps `sim` until it settles, then confirms it stays put for a further window — the core
     /// "does it converge" property every scenario below relies on. Returns the settled positions.
+    /// 120s of pre-settling (rather than a tighter budget) gives a symmetric shape like
+    /// [`star_configuration_converges_without_exploding`] enough time: without the angular-fanning
+    /// force this simulation used to have, a perfectly symmetric arrangement leans only on LJ
+    /// repulsion between leaves to break the tie, which takes noticeably longer to fully settle.
     fn assert_converges(sim: &mut Simulation, notes: &[Note], edges: &[Edge]) -> Vec<Pos2> {
         let settings = SimulationSettings::default();
 
-        for _ in 0..1800 {
+        for _ in 0..7200 {
             sim.step(notes, edges, 1.0 / 60.0, &settings);
         }
 
@@ -637,10 +560,11 @@ mod tests {
 
     #[test]
     fn star_configuration_converges_without_exploding() {
-        // A minimal, isolated reproduction of the real bug this simulation used to have: a hub
-        // linked out to several leaves. The angular-balance force used to have no distance
-        // falloff, clamp, or degree normalization, so this shape alone was enough to make the
-        // whole graph expand forever instead of settling.
+        // A minimal, isolated reproduction of a real bug this simulation used to have: a hub
+        // linked out to several leaves was enough, on its own, to make the whole graph expand
+        // forever instead of settling — back when a since-removed angular-balance force (meant
+        // to fan a hub's outgoing links apart) had no distance falloff, clamp, or degree
+        // normalization. Kept as a general stability check now that force is gone entirely.
         let notes: Vec<Note> = (0..6).map(|i| note(&format!("N{i}"))).collect();
         let edges: Vec<Edge> = (1..6).map(|i| edge(0, i)).collect();
 
@@ -680,10 +604,11 @@ mod tests {
     #[test]
     fn simulation_settles_for_the_example_project() {
         // Regression test for a real bug: the example project's "Overview" note links out to
-        // eight other notes, and the angular-balance force used to have no distance falloff, no
-        // magnitude clamp, and no normalization by how many neighbors it was spread across — so a
-        // single well-linked hub note was enough to pump in more energy than damping could remove
-        // and the whole graph expanded without ever settling.
+        // eight other notes, and a single well-linked hub note like that was enough to pump in
+        // more energy than damping could remove and expand the whole graph without ever settling
+        // — back when a since-removed angular-balance force (meant to fan a hub's outgoing links
+        // apart) had no distance falloff, magnitude clamp, or per-neighbor normalization. Kept as
+        // a general stability check now that force is gone entirely.
         let project = crate::project::Project::open(std::path::PathBuf::from(
             "tests/fixtures/example_project.mystorynotes",
         ))
@@ -698,9 +623,8 @@ mod tests {
             sim.step(&project.notes, &edges, 1.0 / 60.0, &settings);
         }
 
-        // The tangential angular-balance force doesn't necessarily settle to exactly zero net
-        // torque, so a small residual drift (e.g. the whole graph slowly turning) is expected and
-        // fine; it just shouldn't still be gaining speed after 30 seconds.
+        // A general stability check: whatever the settled layout ends up looking like, it just
+        // shouldn't still be gaining speed after 30 seconds of simulated time.
         let max_speed = project
             .notes
             .iter()
@@ -724,70 +648,5 @@ mod tests {
                 "a node settled far from the rest of the graph: {distance}px away"
             );
         }
-    }
-
-    #[test]
-    fn angular_balance_pushes_close_outgoing_neighbors_apart() {
-        let center = Pos2::ZERO;
-        let i_pos = Pos2::new(100.0 * 0.1_f32.cos(), 100.0 * 0.1_f32.sin());
-        let j_pos = Pos2::new(100.0 * (-0.1_f32).cos(), 100.0 * (-0.1_f32).sin());
-        let positions = [center, i_pos, j_pos];
-        let edges = vec![edge(0, 1), edge(0, 2)];
-
-        let settings = SimulationSettings::default();
-        let mut forces = vec![Vec2::ZERO; 3];
-        add_angular_balance_forces(
-            &positions,
-            &edges,
-            &mut forces,
-            settings.angular_repulsion,
-            settings.strong_distance,
-        );
-
-        assert!(
-            forces[1].y > 0.0,
-            "neighbor above the axis should be pushed further up"
-        );
-        assert!(
-            forces[2].y < 0.0,
-            "neighbor below the axis should be pushed further down"
-        );
-    }
-
-    #[test]
-    fn angular_balance_forces_sum_to_zero_across_the_whole_triple() {
-        // Regression test for a reported bug: a small "star" project (a hub with a few leaves)
-        // kept sliding in one direction instead of settling in place. Root cause was this
-        // function pushing a hub's neighbors apart without ever applying the equal-and-opposite
-        // reaction to the hub itself — `perp_i` and `perp_j` point in different directions for
-        // any pair that isn't perfectly symmetric around `center` (the common case: notably,
-        // `initial_layout` doesn't place a hub at the center of its leaves, just on the same
-        // circle as them), so the two pushes didn't cancel out and every frame injected a little
-        // more net momentum into the whole system.
-        let center = Pos2::new(50.0, -30.0);
-        let positions = [
-            center,
-            Pos2::new(120.0, 10.0),
-            Pos2::new(90.0, -90.0),
-            Pos2::new(-10.0, -60.0),
-        ];
-        let edges = vec![edge(0, 1), edge(0, 2), edge(0, 3)];
-
-        let settings = SimulationSettings::default();
-        let mut forces = vec![Vec2::ZERO; positions.len()];
-        add_angular_balance_forces(
-            &positions,
-            &edges,
-            &mut forces,
-            settings.angular_repulsion,
-            settings.strong_distance,
-        );
-
-        let total = forces.iter().fold(Vec2::ZERO, |acc, &f| acc + f);
-        assert!(
-            total.length() < 1e-3,
-            "net force across the whole interaction should be ~zero (momentum-conserving), \
-             got {total:?} from {forces:?}"
-        );
     }
 }
