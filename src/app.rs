@@ -716,6 +716,9 @@ impl eframe::App for App {
                 Some(CellAction::Delete) => {
                     self.delete_confirm = Some(cell.note_index);
                 }
+                Some(CellAction::Close) => {
+                    self.open_cell = None;
+                }
                 None => {}
             }
         });
@@ -735,13 +738,14 @@ impl eframe::App for App {
     }
 }
 
-/// An action requested from a note's cell, for the caller to act on — renaming or deleting a
-/// note needs a dialog and touches [`crate::app::App`] state (`draw_cell` only has the one note
-/// it's drawing, not the whole project's UI state), so it's handed back up rather than handled
-/// here.
+/// An action requested from a note's cell, for the caller to act on — each one touches
+/// [`crate::app::App`] state that `draw_cell` doesn't have access to (`draw_cell` only has the one
+/// note it's drawing, not the whole project's UI state), so it's handed back up rather than
+/// handled here.
 enum CellAction {
     Rename,
     Delete,
+    Close,
 }
 
 fn draw_cell(
@@ -772,6 +776,10 @@ fn draw_cell(
             }
             if icon_button(ui, crate::fonts::icon::TRASH, "Delete") {
                 action = Some(CellAction::Delete);
+            }
+
+            if icon_button(ui, crate::fonts::icon::TIMES, "Close") {
+                action = Some(CellAction::Close);
             }
         });
 
