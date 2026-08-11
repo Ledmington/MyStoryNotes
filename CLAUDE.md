@@ -8,7 +8,7 @@ Its main use case is to create graphs of notes regarding stories the user may wa
 
 ## Requirements
 Non-negotiables:
-- offline-only
+- offline-only — the app itself makes no network requests; clicking a link to a web address is the one exception, and only opens the user's own browser (a separate process) rather than the app fetching anything
 - the save file for each "project" must be a single, human-readable file
 - as little HTML as possible — prefer plain CommonMark syntax; raw HTML in note source is only acceptable where CommonMark has no native construct for what's needed (e.g. `<u>...</u>` for underline, which CommonMark doesn't support)
 - the application must be self-contained, it needs to be a single static executable

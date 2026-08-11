@@ -911,6 +911,11 @@ fn draw_cell(ui: &mut egui::Ui, project: &mut Project, cell: &mut Cell, settings
 
                     if let Some(index) = project.notes.iter().position(|note| note.name == target) {
                         cell.note_index = index;
+                    } else if is_web_url(&target) {
+                        match webbrowser::open(&target) {
+                            Ok(()) => log::info!("Opened '{target}' in the browser"),
+                            Err(error) => log::error!("Failed to open '{target}': {error}"),
+                        }
                     }
                 }
             }
@@ -942,6 +947,12 @@ fn draw_cell(ui: &mut egui::Ui, project: &mut Project, cell: &mut Cell, settings
     if !link_clicked && cell.mode == CellMode::Rendered && response.clicked() {
         cell.mode = CellMode::Editing;
     }
+}
+
+/// Whether a clicked link's destination looks like a web address rather than another note's
+/// name, and so should be opened in the browser instead of navigated to in-app.
+fn is_web_url(target: &str) -> bool {
+    target.starts_with("http://") || target.starts_with("https://")
 }
 
 /// Draws the raw-source editor for a note's `source` at the given persistent `id`.
@@ -1200,6 +1211,15 @@ mod tests {
 
         assert!(search_notes(&project, "").is_empty());
         assert!(search_notes(&project, "   ").is_empty());
+    }
+
+    #[test]
+    fn is_web_url_recognizes_http_and_https_but_not_note_names() {
+        assert!(is_web_url("https://en.wikipedia.org/wiki/Cartography"));
+        assert!(is_web_url("http://example.com"));
+        assert!(!is_web_url("Mira Solenne"));
+        assert!(!is_web_url("ftp://example.com"));
+        assert!(!is_web_url(""));
     }
 
     /// Regression test: applying the same format to an already-wrapped selection used to wrap it

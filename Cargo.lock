@@ -1776,6 +1776,7 @@ dependencies = [
  "serde",
  "time",
  "toml",
+ "webbrowser",
 ]
 
 [[package]]

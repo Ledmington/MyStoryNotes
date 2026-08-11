@@ -9,7 +9,9 @@ connects — characters to locations, plot points to each other, and so on.
 
 ## Features
 
-- **Offline-only.** No accounts, no sync, no network access of any kind.
+- **Offline-only.** No accounts, no sync, no network access of any kind —
+  the one exception is that clicking a link to a web address opens it in
+  your browser, a separate program the app itself never talks to.
 - **A project is a single file.** Everything — every note and its content —
   is saved as one human-readable file (`.mystorynotes`, plain TOML) you can
   read, diff, back up, or put under version control yourself.
@@ -61,6 +63,9 @@ copied anywhere and run on its own.
   the other note's exact name, e.g. `[my sister](Alice)` to link to a note
   named "Alice". Linked notes automatically show up connected in the graph
   view.
+- A Markdown link whose destination is a `http://` or `https://` address,
+  e.g. `[source](https://en.wikipedia.org/wiki/Cartography)`, opens in your
+  browser instead — it's just not treated as a link to another note.
 - The graph view opens alongside a note, or fills the screen when no note is
   open; click any node to open that note.
 
