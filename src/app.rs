@@ -327,7 +327,14 @@ impl App {
                 }
 
                 ui.horizontal(|ui| {
-                    if ui.button("Cancel").clicked() {
+                    if ui
+                        .button("Cancel")
+                        .on_hover_text(ui.ctx().format_shortcut(&egui::KeyboardShortcut::new(
+                            egui::Modifiers::NONE,
+                            egui::Key::Escape,
+                        )))
+                        .clicked()
+                    {
                         self.rename_dialog = None;
                         self.rename_name.clear();
                     }
@@ -782,7 +789,17 @@ fn draw_cell(
                 CellMode::Rendered => (crate::fonts::icon::PENCIL, "Edit"),
                 CellMode::Editing => (crate::fonts::icon::CHECK, "Done"),
             };
-            if icon_button(ui, icon, label) {
+            let toggle_label = crate::fonts::icon_label(ui, icon, label);
+            let mut toggle_response = ui.small_button(toggle_label);
+            // Only Editing -> Rendered has a keyboard shortcut; the other direction is
+            // double-click-only, so there's nothing to hint at in Rendered mode.
+            if cell.mode == CellMode::Editing {
+                toggle_response = toggle_response.on_hover_text(
+                    ui.ctx()
+                        .format_shortcut(&note_editor::SWITCH_TO_RENDER_SHORTCUT),
+                );
+            }
+            if toggle_response.clicked() {
                 cell.mode = match cell.mode {
                     CellMode::Rendered => CellMode::Editing,
                     CellMode::Editing => CellMode::Rendered,

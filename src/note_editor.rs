@@ -153,8 +153,8 @@ fn char_to_byte_index(s: &str, char_index: usize) -> usize {
 /// Switches back to render mode without inserting a newline. Consumed before `TextEdit::show()`
 /// for the same reason as the format shortcuts above — egui's multiline `TextEdit` otherwise
 /// treats a plain Enter as "insert newline", and Ctrl+Enter would insert one too if the widget saw
-/// it first.
-const SWITCH_TO_RENDER_SHORTCUT: egui::KeyboardShortcut =
+/// it first. `pub(crate)` so [`crate::app`] can show it as a hover hint on the "Done" button.
+pub(crate) const SWITCH_TO_RENDER_SHORTCUT: egui::KeyboardShortcut =
     egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::Enter);
 
 /// Draws the raw-source editor for a note's `source` at the given persistent `id`.

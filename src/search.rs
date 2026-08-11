@@ -2,6 +2,9 @@ use eframe::egui;
 
 use crate::project::{NoteId, Project};
 
+const ESCAPE_SHORTCUT: egui::KeyboardShortcut =
+    egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::Escape);
+
 /// State for the project-wide note search window (opened with Ctrl+F).
 #[derive(Default)]
 pub struct Search {
@@ -60,7 +63,7 @@ pub fn draw(ctx: &egui::Context, project: Option<&Project>, search: &mut Search)
                 response.request_focus();
             }
 
-            if ui.input(|input| input.key_pressed(egui::Key::Escape)) {
+            if ui.input(|input| input.key_pressed(ESCAPE_SHORTCUT.logical_key)) {
                 search.open = false;
             }
 
@@ -94,7 +97,11 @@ pub fn draw(ctx: &egui::Context, project: Option<&Project>, search: &mut Search)
 
             ui.separator();
 
-            if ui.button("Close").clicked() {
+            if ui
+                .button("Close")
+                .on_hover_text(ctx.format_shortcut(&ESCAPE_SHORTCUT))
+                .clicked()
+            {
                 search.open = false;
             }
         });
