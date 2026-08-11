@@ -11,6 +11,11 @@ pub(super) fn initial_layout(node_count: usize, edges: &[Edge]) -> Vec<Pos2> {
     if node_count == 0 {
         return Vec::new();
     }
+    // A lone node has nothing to be arranged relative to, and starting it off-center only makes
+    // it visibly crawl toward the origin under the centering force every frame after.
+    if node_count == 1 {
+        return vec![Pos2::ZERO];
+    }
 
     let order = crossing_minimized_order(node_count, edges);
     let radius = 120.0 + 20.0 * node_count as f32;
@@ -168,6 +173,11 @@ mod tests {
             from: NoteId::from(from),
             to: NoteId::from(to),
         }
+    }
+
+    #[test]
+    fn initial_layout_places_a_lone_node_at_the_origin() {
+        assert_eq!(initial_layout(1, &[]), vec![Pos2::ZERO]);
     }
 
     #[test]
