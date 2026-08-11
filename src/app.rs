@@ -751,110 +751,114 @@ fn draw_cell(
     settings: &Settings,
 ) -> Option<CellAction> {
     let mut link_clicked = false;
+    let mut switch_to_editing = false;
     let mut action = None;
 
-    let response = egui::Frame::group(ui.style())
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                let (icon, label) = match cell.mode {
-                    CellMode::Rendered => (crate::fonts::icon::PENCIL, "Edit"),
-                    CellMode::Editing => (crate::fonts::icon::CHECK, "Done"),
+    egui::Frame::group(ui.style()).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            let (icon, label) = match cell.mode {
+                CellMode::Rendered => (crate::fonts::icon::PENCIL, "Edit"),
+                CellMode::Editing => (crate::fonts::icon::CHECK, "Done"),
+            };
+            if icon_button(ui, icon, label) {
+                cell.mode = match cell.mode {
+                    CellMode::Rendered => CellMode::Editing,
+                    CellMode::Editing => CellMode::Rendered,
                 };
-                if icon_button(ui, icon, label) {
-                    cell.mode = match cell.mode {
-                        CellMode::Rendered => CellMode::Editing,
-                        CellMode::Editing => CellMode::Rendered,
-                    };
-                }
-
-                if icon_button(ui, crate::fonts::icon::PENCIL_SQUARE, "Rename") {
-                    action = Some(CellAction::Rename);
-                }
-                if icon_button(ui, crate::fonts::icon::TRASH, "Delete") {
-                    action = Some(CellAction::Delete);
-                }
-            });
-
-            if let Some(note) = project.notes.get(usize::from(cell.note_index))
-                && markdown::title(&note.source).as_deref() != Some(note.name.as_str())
-            {
-                ui.label(
-                    egui::RichText::new(format!("Saved as \"{}\"", note.name))
-                        .italics()
-                        .weak(),
-                );
             }
 
-            match cell.mode {
-                CellMode::Rendered => {
-                    let Some(note) = project.notes.get(usize::from(cell.note_index)) else {
-                        return;
-                    };
+            if icon_button(ui, crate::fonts::icon::PENCIL_SQUARE, "Rename") {
+                action = Some(CellAction::Rename);
+            }
+            if icon_button(ui, crate::fonts::icon::TRASH, "Delete") {
+                action = Some(CellAction::Delete);
+            }
+        });
 
-                    let clicked_link = egui::ScrollArea::vertical()
-                        .id_salt(("note_scroll", cell.note_index))
-                        .show(ui, |ui| {
-                            markdown::render(
-                                ui,
-                                &note.source,
-                                &settings.render,
-                                settings.font_size.render,
-                            )
-                        })
-                        .inner;
+        if let Some(note) = project.notes.get(usize::from(cell.note_index))
+            && markdown::title(&note.source).as_deref() != Some(note.name.as_str())
+        {
+            ui.label(
+                egui::RichText::new(format!("Saved as \"{}\"", note.name))
+                    .italics()
+                    .weak(),
+            );
+        }
 
-                    if let Some(target) = clicked_link {
-                        link_clicked = true;
+        match cell.mode {
+            CellMode::Rendered => {
+                let Some(note) = project.notes.get(usize::from(cell.note_index)) else {
+                    return;
+                };
 
-                        if let Some(index) =
-                            project.notes.iter().position(|note| note.name == target)
-                        {
-                            cell.note_index = NoteId::from(index);
-                        } else if is_web_url(&target) {
-                            match webbrowser::open(&target) {
-                                Ok(()) => log::info!("Opened '{target}' in the browser"),
-                                Err(error) => log::error!("Failed to open '{target}': {error}"),
-                            }
+                let scroll_output = egui::ScrollArea::vertical()
+                    .id_salt(("note_scroll", cell.note_index))
+                    .show(ui, |ui| {
+                        markdown::render(
+                            ui,
+                            &note.source,
+                            &settings.render,
+                            settings.font_size.render,
+                        )
+                    });
+
+                // Scoped to just the rendered content's own rect, rather than the whole
+                // cell (which would also cover the Edit/Rename/Delete buttons above): egui
+                // only lets one interactive widget "win" the pointer at a given position each
+                // frame, so a click-sensing region spanning the buttons would shadow them and
+                // they'd stop registering hover or clicks at all.
+                let content_response = ui.interact(
+                    scroll_output.inner_rect,
+                    ui.make_persistent_id(("note_content_click", cell.note_index)),
+                    egui::Sense::click(),
+                );
+
+                let clicked_link = scroll_output.inner;
+
+                if let Some(target) = clicked_link {
+                    link_clicked = true;
+
+                    if let Some(index) = project.notes.iter().position(|note| note.name == target) {
+                        cell.note_index = NoteId::from(index);
+                    } else if is_web_url(&target) {
+                        match webbrowser::open(&target) {
+                            Ok(()) => log::info!("Opened '{target}' in the browser"),
+                            Err(error) => log::error!("Failed to open '{target}': {error}"),
                         }
                     }
                 }
 
-                CellMode::Editing => {
-                    let Some(note) = project.notes.get_mut(usize::from(cell.note_index)) else {
-                        return;
-                    };
+                switch_to_editing = !link_clicked && content_response.double_clicked();
+            }
 
-                    let id = ui.make_persistent_id(("note_editor", cell.note_index));
+            CellMode::Editing => {
+                let Some(note) = project.notes.get_mut(usize::from(cell.note_index)) else {
+                    return;
+                };
 
-                    let done = egui::ScrollArea::vertical()
-                        .id_salt(("note_scroll", cell.note_index))
-                        .show(ui, |ui| {
-                            note_editor::draw_note_editor(
-                                ui,
-                                &mut note.source,
-                                id,
-                                &settings.edit,
-                                settings.font_size.edit,
-                            )
-                        })
-                        .inner;
+                let id = ui.make_persistent_id(("note_editor", cell.note_index));
 
-                    if done {
-                        cell.mode = CellMode::Rendered;
-                    }
+                let done = egui::ScrollArea::vertical()
+                    .id_salt(("note_scroll", cell.note_index))
+                    .show(ui, |ui| {
+                        note_editor::draw_note_editor(
+                            ui,
+                            &mut note.source,
+                            id,
+                            &settings.edit,
+                            settings.font_size.edit,
+                        )
+                    })
+                    .inner;
+
+                if done {
+                    cell.mode = CellMode::Rendered;
                 }
             }
-        })
-        .response;
+        }
+    });
 
-    // Only upgraded to a click sense in Rendered mode: doing this unconditionally would make the
-    // frame interactive while Editing too, and egui defocuses a widget whenever a click lands on
-    // *any other* click-sensing widget — so every click inside the note editor would immediately
-    // steal focus back via this frame and kick the cell back to Rendered mid-edit.
-    if !link_clicked
-        && cell.mode == CellMode::Rendered
-        && response.interact(egui::Sense::click()).double_clicked()
-    {
+    if switch_to_editing {
         cell.mode = CellMode::Editing;
     }
 
