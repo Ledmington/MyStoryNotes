@@ -103,6 +103,8 @@ pub fn draw(
         zoom: view.zoom,
     };
 
+    painter.rect_filled(canvas_rect, 0.0, style.colors.canvas);
+
     let segments = edge_segments(&edges, &rects, canvas_rect, view);
     let hovered_edge = find_hovered_edge(&response, &segments);
     let highlight = Highlight {
@@ -134,6 +136,7 @@ pub fn draw(
 /// Palette-derived colors, reused across every edge and node drawn this frame.
 struct Colors {
     text: Color32,
+    canvas: Color32,
     node_fill: Color32,
     edge: Color32,
     accent: Color32,
@@ -142,9 +145,14 @@ struct Colors {
 impl Colors {
     fn from_palette(palette: &UiPalette) -> Self {
         let text = settings::rgb(palette.text);
+        let panel_background = settings::rgb(palette.panel_background);
         Self {
-            node_fill: mix(settings::rgb(palette.panel_background), text, 0.12),
-            edge: mix(settings::rgb(palette.panel_background), text, 0.4),
+            // Slightly darker than the panel behind it (rather than reusing that fill directly)
+            // so nodes and edges, which are both only subtly lighter than the panel background,
+            // have something to stand out against.
+            canvas: mix(panel_background, Color32::BLACK, 0.12),
+            node_fill: mix(panel_background, text, 0.12),
+            edge: mix(panel_background, text, 0.4),
             accent: settings::rgb(palette.accent),
             text,
         }
