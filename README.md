@@ -84,6 +84,11 @@ formatting instead of doubling it up.
 - `Ctrl+E` — `verbatim` (inline code)
 - `Ctrl+K` — hyperlink
 
+Also while editing a note, `Ctrl+Z` undoes and `Ctrl+Shift+Z` (or `Ctrl+Y`)
+redoes — both typed text and applied formatting. Undo history is kept
+per note for as long as the app stays open, but isn't saved with the
+project.
+
 An example project with sample notes is included at
 [`tests/fixtures/example_project.mystorynotes`](tests/fixtures/example_project.mystorynotes)
 — open it from the app to see the format and the graph view in action. It

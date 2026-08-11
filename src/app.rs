@@ -1106,41 +1106,11 @@ mod tests {
 
         // Frame 1: draw the editor once and grab focus, then set the selection the user is
         // assumed to have made — there's no synthetic mouse-drag to select text with here.
-        ctx.run_ui(egui::RawInput::default(), |ui| {
-            ui.memory_mut(|memory| memory.request_focus(id));
-            draw_note_editor(ui, &mut source, id, &EditPalette::default(), 14.0);
-        })
-        .drop_without_applying_deltas();
-        let mut state = egui::widgets::text_edit::TextEditState::load(&ctx, id).unwrap();
-        state
-            .cursor
-            .set_char_range(Some(egui::text::CCursorRange::two(
-                egui::text::CCursor::new(selection.start),
-                egui::text::CCursor::new(selection.end),
-            )));
-        state.store(&ctx, id);
+        run_note_editor_frame(&ctx, &mut source, id, 0.0, None);
+        set_note_editor_selection(&ctx, id, selection);
 
         // Frame 2: deliver the keypress.
-        ctx.run_ui(
-            egui::RawInput {
-                events: vec![egui::Event::Key {
-                    key,
-                    physical_key: None,
-                    pressed: true,
-                    repeat: false,
-                    modifiers: egui::Modifiers {
-                        ctrl: true,
-                        command: true,
-                        ..Default::default()
-                    },
-                }],
-                ..Default::default()
-            },
-            |ui| {
-                draw_note_editor(ui, &mut source, id, &EditPalette::default(), 14.0);
-            },
-        )
-        .drop_without_applying_deltas();
+        run_note_editor_frame(&ctx, &mut source, id, 0.0, Some(ctrl_key_event(key, false)));
 
         source
     }
@@ -1155,5 +1125,135 @@ mod tests {
     fn ctrl_k_turns_the_selection_into_a_hyperlink_instead_of_deleting_the_rest_of_the_line() {
         let source = press_ctrl_key_in_note_editor("see also world", 9..14, egui::Key::K);
         assert_eq!(source, "see also [world]()");
+    }
+
+    /// egui's `TextEdit` has its own built-in undo/redo (Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y), keyed
+    /// off whatever text and cursor it sees when it draws — which, since `draw_note_editor`
+    /// mutates `source` (for our format shortcuts) *before* the widget ever runs, it picks up
+    /// automatically. These tests exist to confirm that actually holds, not to implement undo
+    /// ourselves: an applied format is just another edit as far as the widget's undo history is
+    /// concerned. `Undoer` only turns a change into its own undo point once the state has stayed
+    /// put for one second (see `egui::util::undoer::Settings::stable_time`), so these frames
+    /// advance simulated time rather than wall-clock time to make that deterministic.
+    #[test]
+    fn ctrl_z_undoes_an_applied_format_once_it_settles() {
+        let ctx = egui::Context::default();
+        crate::fonts::install(&ctx);
+        let id = egui::Id::new("test_undo_note_editor");
+        let mut source = "hello world".to_owned();
+
+        run_note_editor_frame(&ctx, &mut source, id, 0.0, None); // first frame: seeds undo point 1
+        set_note_editor_selection(&ctx, id, 6..11);
+
+        run_note_editor_frame(
+            &ctx,
+            &mut source,
+            id,
+            0.0,
+            Some(ctrl_key_event(egui::Key::B, false)),
+        );
+        assert_eq!(source, "hello **world**");
+
+        run_note_editor_frame(&ctx, &mut source, id, 2.0, None); // let the format settle
+        run_note_editor_frame(
+            &ctx,
+            &mut source,
+            id,
+            2.0,
+            Some(ctrl_key_event(egui::Key::Z, false)),
+        );
+
+        assert_eq!(source, "hello world");
+    }
+
+    #[test]
+    fn ctrl_shift_z_redoes_after_an_undo() {
+        let ctx = egui::Context::default();
+        crate::fonts::install(&ctx);
+        let id = egui::Id::new("test_redo_note_editor");
+        let mut source = "hello world".to_owned();
+
+        run_note_editor_frame(&ctx, &mut source, id, 0.0, None);
+        set_note_editor_selection(&ctx, id, 6..11);
+        run_note_editor_frame(
+            &ctx,
+            &mut source,
+            id,
+            0.0,
+            Some(ctrl_key_event(egui::Key::B, false)),
+        );
+        run_note_editor_frame(&ctx, &mut source, id, 2.0, None);
+        run_note_editor_frame(
+            &ctx,
+            &mut source,
+            id,
+            2.0,
+            Some(ctrl_key_event(egui::Key::Z, false)),
+        );
+        assert_eq!(source, "hello world");
+
+        run_note_editor_frame(
+            &ctx,
+            &mut source,
+            id,
+            2.0,
+            Some(ctrl_key_event(egui::Key::Z, true)),
+        );
+        assert_eq!(source, "hello **world**");
+    }
+
+    /// A Ctrl(+Shift)+`key` event, matching what a real Linux/Windows keypress reports (both
+    /// `ctrl` and `command` set — see the doc comment on [`press_ctrl_key_in_note_editor`]).
+    fn ctrl_key_event(key: egui::Key, shift: bool) -> egui::Event {
+        egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers {
+                ctrl: true,
+                command: true,
+                shift,
+                ..Default::default()
+            },
+        }
+    }
+
+    /// Runs one frame of [`draw_note_editor`] against a persistent, focused widget `id`, at
+    /// simulated `time` (seconds), optionally delivering `event`.
+    fn run_note_editor_frame(
+        ctx: &egui::Context,
+        source: &mut String,
+        id: egui::Id,
+        time: f64,
+        event: Option<egui::Event>,
+    ) {
+        let raw_input = egui::RawInput {
+            time: Some(time),
+            events: event.into_iter().collect(),
+            ..Default::default()
+        };
+
+        ctx.run_ui(raw_input, |ui| {
+            ui.memory_mut(|memory| memory.request_focus(id));
+            draw_note_editor(ui, source, id, &EditPalette::default(), 14.0);
+        })
+        .drop_without_applying_deltas();
+    }
+
+    /// Directly overwrites the persisted selection for `id`, standing in for a mouse drag.
+    fn set_note_editor_selection(
+        ctx: &egui::Context,
+        id: egui::Id,
+        selection: std::ops::Range<usize>,
+    ) {
+        let mut state = egui::widgets::text_edit::TextEditState::load(ctx, id).unwrap();
+        state
+            .cursor
+            .set_char_range(Some(egui::text::CCursorRange::two(
+                egui::text::CCursor::new(selection.start),
+                egui::text::CCursor::new(selection.end),
+            )));
+        state.store(ctx, id);
     }
 }
