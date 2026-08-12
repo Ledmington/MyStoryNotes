@@ -134,28 +134,15 @@ impl Project {
     }
 
     pub fn create_note(&mut self, name: &str) -> io::Result<NoteId> {
-        let name = name.trim();
-
-        if name.is_empty() {
-            log::warn!("Rejected note creation: name cannot be empty");
-
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "Note name cannot be empty",
-            ));
-        }
-
-        if self.notes.iter().any(|note| note.name == name) {
-            log::warn!("Rejected note creation: '{name}' already exists");
-
-            return Err(io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                "A note with this name already exists",
-            ));
-        }
+        let name = validate_name(
+            name,
+            self.notes.iter().map(|note| note.name.as_str()),
+            "Note",
+            "creation",
+        )?;
 
         self.notes.push(Note {
-            name: name.to_owned(),
+            name: name.clone(),
             source: String::new(),
             is_manuscript: false,
             category: None,
@@ -174,36 +161,24 @@ impl Project {
     /// [`markdown::rename_links`]) so the graph stays intact, and returns its id afterward (the
     /// rename may change its sorted position). Renaming a note to its current name is a no-op.
     pub fn rename_note(&mut self, id: NoteId, new_name: &str) -> io::Result<NoteId> {
-        let new_name = new_name.trim();
-
-        if new_name.is_empty() {
-            log::warn!("Rejected note rename: name cannot be empty");
-
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "Note name cannot be empty",
-            ));
-        }
-
         let old_name = self.notes[usize::from(id)].name.clone();
+
+        let other_names = self
+            .notes
+            .iter()
+            .enumerate()
+            .filter(|&(index, _)| NoteId::from(index) != id)
+            .map(|(_, note)| note.name.as_str());
+        let new_name = validate_name(new_name, other_names, "Note", "rename")?;
 
         if new_name == old_name {
             return Ok(id);
         }
 
-        if self.notes.iter().any(|note| note.name == new_name) {
-            log::warn!("Rejected note rename: '{new_name}' already exists");
-
-            return Err(io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                "A note with this name already exists",
-            ));
-        }
-
-        self.notes[usize::from(id)].name = new_name.to_owned();
+        self.notes[usize::from(id)].name = new_name.clone();
 
         for note in &mut self.notes {
-            note.source = markdown::rename_links(&note.source, &old_name, new_name);
+            note.source = markdown::rename_links(&note.source, &old_name, &new_name);
         }
 
         self.notes.sort_by(|a, b| a.name.cmp(&b.name));
@@ -253,30 +228,16 @@ impl Project {
     /// Adds a new category named `name` in `color`. Rejects a name already in use by another
     /// category, the same as [`Self::create_note`] does for note names.
     pub fn add_category(&mut self, name: &str, color: [u8; 3]) -> io::Result<()> {
-        let name = name.trim();
+        let name = validate_name(
+            name,
+            self.categories
+                .iter()
+                .map(|category| category.name.as_str()),
+            "Category",
+            "creation",
+        )?;
 
-        if name.is_empty() {
-            log::warn!("Rejected category creation: name cannot be empty");
-
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "Category name cannot be empty",
-            ));
-        }
-
-        if self.categories.iter().any(|category| category.name == name) {
-            log::warn!("Rejected category creation: '{name}' already exists");
-
-            return Err(io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                "A category with this name already exists",
-            ));
-        }
-
-        self.categories.push(Category {
-            name: name.to_owned(),
-            color,
-        });
+        self.categories.push(Category { name, color });
 
         Ok(())
     }
@@ -285,32 +246,15 @@ impl Project {
     /// [`Note::category`]) so they stay assigned to the renamed category rather than being
     /// silently orphaned.
     pub fn rename_category(&mut self, old_name: &str, new_name: &str) -> io::Result<()> {
-        let new_name = new_name.trim();
-
-        if new_name.is_empty() {
-            log::warn!("Rejected category rename: name cannot be empty");
-
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "Category name cannot be empty",
-            ));
-        }
+        let other_names = self
+            .categories
+            .iter()
+            .filter(|category| category.name != old_name)
+            .map(|category| category.name.as_str());
+        let new_name = validate_name(new_name, other_names, "Category", "rename")?;
 
         if old_name == new_name {
             return Ok(());
-        }
-
-        if self
-            .categories
-            .iter()
-            .any(|category| category.name == new_name)
-        {
-            log::warn!("Rejected category rename: '{new_name}' already exists");
-
-            return Err(io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                "A category with this name already exists",
-            ));
         }
 
         let Some(category) = self
@@ -320,11 +264,11 @@ impl Project {
         else {
             return Err(io::Error::new(io::ErrorKind::NotFound, "No such category"));
         };
-        category.name = new_name.to_owned();
+        category.name = new_name.clone();
 
         for note in &mut self.notes {
             if note.category.as_deref() == Some(old_name) {
-                note.category = Some(new_name.to_owned());
+                note.category = Some(new_name.clone());
             }
         }
 
@@ -354,6 +298,48 @@ impl Project {
             .find(|category| category.name == name)
             .map(|category| category.color)
     }
+}
+
+/// Trims `name` and validates it for [`Project::create_note`]/[`Project::rename_note`]/
+/// [`Project::add_category`]/[`Project::rename_category`]: rejected (with a warning logged and
+/// an `io::Error`) if empty, or if it collides with any of `existing_names` — callers doing a
+/// rename should exclude the item's own current name from that iterator, so renaming something
+/// to its own name isn't mistaken for a collision. `kind` (e.g. "Note", "Category") names the
+/// item type for the error message, and `action` (e.g. "creation", "rename") the operation, for
+/// the log line.
+fn validate_name<'a>(
+    name: &str,
+    mut existing_names: impl Iterator<Item = &'a str>,
+    kind: &str,
+    action: &str,
+) -> io::Result<String> {
+    let name = name.trim();
+
+    if name.is_empty() {
+        log::warn!(
+            "Rejected {} {action}: name cannot be empty",
+            kind.to_lowercase()
+        );
+
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{kind} name cannot be empty"),
+        ));
+    }
+
+    if existing_names.any(|existing| existing == name) {
+        log::warn!(
+            "Rejected {} {action}: '{name}' already exists",
+            kind.to_lowercase()
+        );
+
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            format!("A {} with this name already exists", kind.to_lowercase()),
+        ));
+    }
+
+    Ok(name.to_owned())
 }
 
 #[cfg(test)]
