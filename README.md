@@ -35,7 +35,7 @@ toolchain to build it from source.
 ### Prerequisites
 
 - Rust 1.95.0 or newer (this is the minimum supported Rust version, tracked
-  via `rust-version` in both `Cargo.toml` files — the root package's and
+  via `rust-version` in both `Cargo.toml` files — [`desktop/`](desktop)'s and
   [`core/`](core)'s; CI also tests against 1.97.0)
 - On Linux, the usual system libraries needed to build a windowed GUI app:
   `libgtk-3-dev`, `libxkbcommon-dev`, `libx11-dev`, `libxi-dev`,
@@ -111,7 +111,7 @@ per note for as long as the app stays open, but isn't saved with the
 project.
 
 An example project with sample notes is included at
-[`tests/fixtures/example_project.mystorynotes`](tests/fixtures/example_project.mystorynotes)
+[`desktop/tests/fixtures/example_project.mystorynotes`](desktop/tests/fixtures/example_project.mystorynotes)
 — open it from the app to see the format and the graph view in action. It
 doubles as a fixture for the integration tests (see Development below).
 
@@ -123,12 +123,12 @@ external assets — the file is the whole project.
 
 ## Development
 
-MyStoryNotes is a two-crate Cargo workspace: [`core/`](core) is the
-UI-agnostic domain logic (projects/notes, settings, markdown parsing, the
-graph's layout and physics, search, logging) with no `egui`/`eframe`
-dependency at all, and the root package is the `egui`/`eframe` GUI built on
-top of it. The commands below are run from the repository root and cover
-both crates automatically.
+MyStoryNotes is a two-package Cargo workspace with a virtual manifest at the
+root: [`core/`](core) is the UI-agnostic domain logic (projects/notes,
+settings, markdown parsing, the graph's layout and physics, search, logging)
+with no `egui`/`eframe` dependency at all, and [`desktop/`](desktop) is the
+`egui`/`eframe` GUI built on top of it. The commands below are run from the
+repository root and cover both packages automatically.
 
 ```bash
 cargo build              # debug build
@@ -142,9 +142,9 @@ cargo fmt                 # format
 ```
 
 `cargo test` runs both unit tests (next to the code they test, in either
-crate) and the integration tests under [`tests/`](tests), which exercise
-both crates through their public API using fixture project files from
-[`tests/fixtures/`](tests/fixtures).
+package) and the integration tests under [`desktop/tests/`](desktop/tests),
+which exercise both packages through their public API using fixture project
+files from [`desktop/tests/fixtures/`](desktop/tests/fixtures).
 
 See [`CLAUDE.md`](CLAUDE.md) for the project's requirements and code style
 guidelines.

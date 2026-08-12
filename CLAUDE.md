@@ -21,14 +21,14 @@ Negotiables:
 - pretty colors
 
 ## Project structure
-This is a two-crate Cargo workspace:
+This is a two-package Cargo workspace with a virtual manifest at the root (the root `Cargo.toml` has only a `[workspace]` table, no `[package]` of its own):
 - `core/` (Cargo package `MyStoryNotesCore`, imported in code as `my_story_notes_core` via its `[lib] name` override) — every domain rule and its data: projects/notes/categories, settings data, markdown parsing, the graph's layout and physics, search, and logging. Has no `egui`/`eframe` dependency at all, not even for math — see `core/src/math.rs`'s minimal `Pos2`/`Vec2`, which the graph's layout and physics use instead of borrowing a GUI toolkit's own types. This is what makes the domain logic testable without any graphics and, if it's ever needed, reusable from a different frontend.
-- the root package (Cargo package `MyStoryNotes`, imported in code as `my_story_notes`; `src/`) — the egui/eframe GUI: all drawing code, plus the handful of conversions from `core`'s plain data into egui's own types (`src/style.rs` for colors/fonts, and `src/graph_view/camera.rs` for `core::math::Pos2` <-> `egui::Pos2`).
+- `desktop/` (Cargo package `MyStoryNotes`, imported in code as `my_story_notes` via its `[lib] name` override) — the egui/eframe GUI: all drawing code, plus the handful of conversions from `core`'s plain data into egui's own types (`desktop/src/style.rs` for colors/fonts, and `desktop/src/graph_view/camera.rs` for `core::math::Pos2` <-> `egui::Pos2`).
 
-The root `Cargo.toml` is both the workspace manifest and the root package's manifest (`default-members = [".", "core"]`), so every command below already covers both crates without needing `--workspace` or `-p` flags.
+Since the root manifest sets no `default-members`, `cargo` commands run at the repository root already cover both packages without needing `--workspace` or `-p` flags.
 
 ## Minimum supported Rust version
-The MSRV is 1.95.0, tracked via `rust-version` in both `Cargo.toml` files (root and `core/`). CI checks both the MSRV and the latest toolchain it's pinned to (currently 1.97.0). Re-check the MSRV with `cargo msrv find` after bumping dependencies or using newer language features, and update both `Cargo.toml` files, this file, `README.md`, and `.github/workflows/ci.yml` together if it changes.
+The MSRV is 1.95.0, tracked via `rust-version` in both `Cargo.toml` files (`core/` and `desktop/`). CI checks both the MSRV and the latest toolchain it's pinned to (currently 1.97.0). Re-check the MSRV with `cargo msrv find` after bumping dependencies or using newer language features, and update both `Cargo.toml` files, this file, `README.md`, and `.github/workflows/ci.yml` together if it changes.
 
 ## Commands
 Format the code:
@@ -77,9 +77,9 @@ docker build -t MyStoryNotes -f etc/Dockerfile .
 ```
 
 ## Testing
-Unit tests live alongside the code they test, in `#[cfg(test)] mod tests` within each module (in either crate), and may use private internals freely.
-Integration/end-to-end tests live under the root `tests/` and exercise both crates only through their public API — this is why `src/lib.rs` exists (with `src/main.rs` as a thin binary wrapper around it): a `tests/` file is compiled as a separate crate and can't see anything a lib doesn't expose as `pub`. A `tests/*.rs` file may depend on `my_story_notes_core` directly (it's already a normal dependency of the root package) as well as `my_story_notes`.
-`tests/common/mod.rs` holds shared fixture-loading helpers; fixture project files live in `tests/fixtures/`, including `example_project.mystorynotes`, the user-facing sample referenced from the README. A `core/`-side unit test that needs a fixture reaches it via `concat!(env!("CARGO_MANIFEST_DIR"), "/../tests/fixtures/...")`, since fixtures aren't duplicated into `core/`.
+Unit tests live alongside the code they test, in `#[cfg(test)] mod tests` within each module (in either package), and may use private internals freely.
+Integration/end-to-end tests live under `desktop/tests/` and exercise both packages only through their public API — this is why `desktop/src/lib.rs` exists (with `desktop/src/main.rs` as a thin binary wrapper around it): a `tests/` file is compiled as a separate crate and can't see anything a lib doesn't expose as `pub`. A `desktop/tests/*.rs` file may depend on `my_story_notes_core` directly (it's already a normal dependency of the `desktop` package) as well as `my_story_notes`.
+`desktop/tests/common/mod.rs` holds shared fixture-loading helpers; fixture project files live in `desktop/tests/fixtures/`, including `example_project.mystorynotes`, the user-facing sample referenced from the README. A `core/`-side unit test that needs a fixture reaches it via `concat!(env!("CARGO_MANIFEST_DIR"), "/../desktop/tests/fixtures/...")`, since fixtures aren't duplicated into `core/`.
 
 ## General philosophy and code style
 Don't overcomplicate things until there is a clear need.

@@ -22,8 +22,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
-COPY src ./src
-COPY assets ./assets
+COPY core ./core
+COPY desktop ./desktop
 
 RUN cargo build --release
 

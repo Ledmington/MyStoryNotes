@@ -655,12 +655,12 @@ mod tests {
         // — back when a since-removed angular-balance force (meant to fan a hub's outgoing links
         // apart) had no distance falloff, magnitude clamp, or per-neighbor normalization. Kept as
         // a general stability check now that force is gone entirely.
-        // The fixture lives under the workspace root's `tests/fixtures/`, not this crate's own
-        // (`core/`) — `CARGO_MANIFEST_DIR` is this crate's directory, so the path has to step
-        // back up out of it.
+        // The fixture lives under the sibling `desktop/` package's `tests/fixtures/`, not this
+        // crate's own (`core/`) — `CARGO_MANIFEST_DIR` is this crate's directory, so the path has
+        // to step back up out of it.
         let project = crate::project::Project::open(std::path::PathBuf::from(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../tests/fixtures/example_project.mystorynotes"
+            "/../desktop/tests/fixtures/example_project.mystorynotes"
         )))
         .unwrap();
         let edges = resolve_edges(&project);
