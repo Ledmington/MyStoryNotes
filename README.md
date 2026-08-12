@@ -50,7 +50,7 @@ cd my_story_notes
 cargo run --release
 ```
 
-The compiled binary ends up at `target/release/my_story_notes` and can be
+The compiled binary ends up at `target/release/MyStoryNotes` and can be
 copied anywhere and run on its own.
 
 ## Usage
@@ -156,7 +156,7 @@ alternative to installing the system libraries above locally. Build it from
 the repository root (it needs the whole source tree, not just `etc/`):
 
 ```bash
-docker build -t my_story_notes -f etc/Dockerfile .
+docker build -t MyStoryNotes -f etc/Dockerfile .
 ```
 
 MyStoryNotes is a windowed GUI app, so running the container still needs
@@ -169,7 +169,7 @@ docker run --rm -it \
   -e DISPLAY=$DISPLAY \
   -v /tmp/.X11-unix:/tmp/.X11-unix:ro \
   -v "$HOME:/root" \
-  my_story_notes
+  MyStoryNotes
 ```
 
 Mounting `$HOME` to `/root` (the container's default user's home) makes

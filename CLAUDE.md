@@ -22,8 +22,8 @@ Negotiables:
 
 ## Project structure
 This is a two-crate Cargo workspace:
-- `core/` (package `my_story_notes_core`) — every domain rule and its data: projects/notes/categories, settings data, markdown parsing, the graph's layout and physics, search, and logging. Has no `egui`/`eframe` dependency at all, not even for math — see `core/src/math.rs`'s minimal `Pos2`/`Vec2`, which the graph's layout and physics use instead of borrowing a GUI toolkit's own types. This is what makes the domain logic testable without any graphics and, if it's ever needed, reusable from a different frontend.
-- the root package (`my_story_notes`, `src/`) — the egui/eframe GUI: all drawing code, plus the handful of conversions from `core`'s plain data into egui's own types (`src/style.rs` for colors/fonts, and `src/graph_view/camera.rs` for `core::math::Pos2` <-> `egui::Pos2`).
+- `core/` (Cargo package `MyStoryNotesCore`, imported in code as `my_story_notes_core` via its `[lib] name` override) — every domain rule and its data: projects/notes/categories, settings data, markdown parsing, the graph's layout and physics, search, and logging. Has no `egui`/`eframe` dependency at all, not even for math — see `core/src/math.rs`'s minimal `Pos2`/`Vec2`, which the graph's layout and physics use instead of borrowing a GUI toolkit's own types. This is what makes the domain logic testable without any graphics and, if it's ever needed, reusable from a different frontend.
+- the root package (Cargo package `MyStoryNotes`, imported in code as `my_story_notes`; `src/`) — the egui/eframe GUI: all drawing code, plus the handful of conversions from `core`'s plain data into egui's own types (`src/style.rs` for colors/fonts, and `src/graph_view/camera.rs` for `core::math::Pos2` <-> `egui::Pos2`).
 
 The root `Cargo.toml` is both the workspace manifest and the root package's manifest (`default-members = [".", "core"]`), so every command below already covers both crates without needing `--workspace` or `-p` flags.
 
@@ -73,7 +73,7 @@ cargo test
 
 Build and run in a container, as an alternative to installing system libraries locally (see the README's "Running in Docker" section for the full `docker run` invocation, since the app is a windowed GUI program and needs a display server forwarded in):
 ```bash
-docker build -t my_story_notes -f etc/Dockerfile .
+docker build -t MyStoryNotes -f etc/Dockerfile .
 ```
 
 ## Testing

@@ -3,17 +3,20 @@ members = ["core"]
 default-members = [".", "core"]
 
 [package]
-name = "my_story_notes"
+name = "MyStoryNotes"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
 rust-version = "1.95.0"
 
+[lib]
+name = "my_story_notes"
+
 [dependencies]
 eframe = "0.36"
 egui = "0.36"
 log = "0.4"
-my_story_notes_core = { path = "core" }
+my_story_notes_core = { path = "core", package = "MyStoryNotesCore" }
 pulldown-cmark = "0.13"
 rfd = "0.17"
 webbrowser = "1"

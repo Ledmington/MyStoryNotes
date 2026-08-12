@@ -3,7 +3,7 @@
 # of the README for how to launch it with X11 forwarding.
 #
 # Build from the repository root (not from etc/), since the build needs the whole source tree:
-#   docker build -t my_story_notes -f etc/Dockerfile .
+#   docker build -t MyStoryNotes -f etc/Dockerfile .
 
 FROM rust:1.97.0-slim-bookworm AS builder
 
@@ -43,6 +43,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libegl1 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /build/target/release/my_story_notes /usr/local/bin/my_story_notes
+COPY --from=builder /build/target/release/MyStoryNotes /usr/local/bin/MyStoryNotes
 
-ENTRYPOINT ["my_story_notes"]
+ENTRYPOINT ["MyStoryNotes"]
