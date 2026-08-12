@@ -81,6 +81,9 @@ Unit tests live alongside the code they test, in `#[cfg(test)] mod tests` within
 Integration/end-to-end tests live under `desktop/tests/` and exercise both packages only through their public API — this is why `desktop/src/lib.rs` exists (with `desktop/src/main.rs` as a thin binary wrapper around it): a `tests/` file is compiled as a separate crate and can't see anything a lib doesn't expose as `pub`. A `desktop/tests/*.rs` file may depend on `my_story_notes_core` directly (it's already a normal dependency of the `desktop` package) as well as `my_story_notes`.
 `desktop/tests/common/mod.rs` holds shared fixture-loading helpers; fixture project files live in `desktop/tests/fixtures/`, including `example_project.mystorynotes`, the user-facing sample referenced from the README. A `core/`-side unit test that needs a fixture reaches it via `concat!(env!("CARGO_MANIFEST_DIR"), "/../desktop/tests/fixtures/...")`, since fixtures aren't duplicated into `core/`.
 
+## Verifying GUI changes
+Never run the app to interact with it: no screenshots, no video/screen capture, and no simulated mouse or keyboard input. The only execution allowed is confirming the binary starts without crashing (e.g. `cargo run`, left briefly, then stopped) — actually seeing or exercising the UI is left to the user.
+
 ## General philosophy and code style
 Don't overcomplicate things until there is a clear need.
 Prefer keeping everything in a single package until there is a clear need to split things into different libraries — the `core`/GUI split above was one such clear need (faster iteration on domain logic without recompiling `eframe`, a compiler-enforced boundary, and the option of a non-egui frontend later); don't look for reasons to split further than that without another one just as concrete.
