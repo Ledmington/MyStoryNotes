@@ -125,13 +125,32 @@ fn ray_segments(visible: Rect) -> Vec<[Pos2; 2]> {
         .collect()
 }
 
-/// An Archimedean spiral (radius growing by [`PATTERN_SPACING`] every full turn) centered on the
-/// world origin, approximated as a polyline out to the same radius [`ray_segments`] reaches.
+/// How many arms [`spiral_segments`] draws — evenly rotated around the origin, so 2 gives the
+/// classic "double spiral" look rather than a single arm.
+const SPIRAL_ARM_COUNT: usize = 2;
+
+/// A double spiral: [`SPIRAL_ARM_COUNT`] Archimedean spiral arms (radius growing by
+/// [`PATTERN_SPACING`] every full turn), all centered on the world origin and evenly rotated
+/// around it, each approximated as a polyline out to the same radius [`ray_segments`] reaches —
+/// see [`spiral_arm_segments`] for a single arm.
 fn spiral_segments(visible: Rect) -> Vec<[Pos2; 2]> {
+    let max_radius = max_corner_distance_from_origin(visible);
+
+    (0..SPIRAL_ARM_COUNT)
+        .flat_map(|arm| {
+            let phase = arm as f32 / SPIRAL_ARM_COUNT as f32 * std::f32::consts::TAU;
+            spiral_arm_segments(max_radius, phase)
+        })
+        .collect()
+}
+
+/// One arm of an Archimedean spiral (radius growing by [`PATTERN_SPACING`] every full turn),
+/// starting at the world origin and rotated by `phase` radians, approximated as a polyline out to
+/// `max_radius`.
+fn spiral_arm_segments(max_radius: f32, phase: f32) -> Vec<[Pos2; 2]> {
     /// Radians per polyline segment — small enough for the curve to look smooth.
     const STEP: f32 = 0.2;
 
-    let max_radius = max_corner_distance_from_origin(visible);
     let growth_per_radian = PATTERN_SPACING / std::f32::consts::TAU;
 
     let mut segments = Vec::new();
@@ -139,7 +158,7 @@ fn spiral_segments(visible: Rect) -> Vec<[Pos2; 2]> {
     let mut prev = Pos2::ZERO;
 
     while growth_per_radian * theta <= max_radius {
-        let point = Pos2::ZERO + Vec2::angled(theta) * (growth_per_radian * theta);
+        let point = Pos2::ZERO + Vec2::angled(theta + phase) * (growth_per_radian * theta);
         segments.push([prev, point]);
         prev = point;
         theta += STEP;
@@ -205,10 +224,10 @@ mod tests {
     }
 
     #[test]
-    fn spiral_segments_form_a_continuous_polyline_with_growing_radius() {
-        let visible = Rect::from_min_max(Pos2::new(-100.0, -100.0), Pos2::new(100.0, 100.0));
+    fn spiral_arm_segments_form_a_continuous_polyline_with_growing_radius() {
+        let max_radius = 150.0;
 
-        let segments = spiral_segments(visible);
+        let segments = spiral_arm_segments(max_radius, 0.0);
         assert!(!segments.is_empty());
 
         assert_eq!(
@@ -233,11 +252,43 @@ mod tests {
             last_radius = radius;
         }
 
-        let max_corner_distance = max_corner_distance_from_origin(visible);
         assert!(
-            last_radius <= max_corner_distance,
-            "the spiral shouldn't overshoot the radius that already covers the visible rect"
+            last_radius <= max_radius,
+            "the spiral shouldn't overshoot the requested radius"
         );
+    }
+
+    #[test]
+    fn spiral_segments_draws_two_arms_offset_by_half_a_turn() {
+        let visible = Rect::from_min_max(Pos2::new(-100.0, -100.0), Pos2::new(100.0, 100.0));
+        let max_radius = max_corner_distance_from_origin(visible);
+
+        let segments = spiral_segments(visible);
+        let one_arm = spiral_arm_segments(max_radius, 0.0);
+
+        assert_eq!(
+            segments.len(),
+            one_arm.len() * SPIRAL_ARM_COUNT,
+            "each arm should contribute the same number of segments"
+        );
+
+        let (first_arm, second_arm) = segments.split_at(one_arm.len());
+
+        // The second arm should trace the same radius profile as the first, just rotated by half
+        // a turn (PI radians) around the origin.
+        for (&[_, a], &[_, b]) in first_arm.iter().zip(second_arm) {
+            assert!(
+                (a.to_vec2().length() - b.to_vec2().length()).abs() < 1e-3,
+                "both arms should reach the same radius at each step"
+            );
+
+            let angle_diff =
+                (b.to_vec2().angle() - a.to_vec2().angle()).rem_euclid(std::f32::consts::TAU);
+            assert!(
+                (angle_diff - std::f32::consts::PI).abs() < 1e-3,
+                "the second arm should be rotated exactly half a turn from the first: {angle_diff}"
+            );
+        }
     }
 
     #[test]
