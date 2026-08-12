@@ -15,3 +15,4 @@ pub mod note_editor;
 pub mod search_panel;
 pub mod settings_panel;
 pub mod style;
+pub mod todo_panel;

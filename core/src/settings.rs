@@ -58,8 +58,9 @@ impl Default for FontSizes {
     }
 }
 
-/// Colors for a rendered note: headings, bold text, inline code and links. Plain text uses the
-/// app's [`UiPalette::text`] rather than a color of its own.
+/// Colors for a rendered note: headings, bold text, inline code, links, and TODO paragraphs (see
+/// [`my_story_notes_core::todo`](crate::todo)). Plain text uses the app's [`UiPalette::text`]
+/// rather than a color of its own.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RenderPalette {
@@ -67,6 +68,7 @@ pub struct RenderPalette {
     pub bold: [u8; 3],
     pub code: [u8; 3],
     pub link: [u8; 3],
+    pub todo: [u8; 3],
 }
 
 impl Default for RenderPalette {
@@ -76,6 +78,7 @@ impl Default for RenderPalette {
             bold: [0xE0, 0xE0, 0xE0],
             code: [0xCE, 0x91, 0x78],
             link: [0x5A, 0xAA, 0xFF],
+            todo: [0xFF, 0xC1, 0x4E],
         }
     }
 }
@@ -365,6 +368,7 @@ pub fn themes() -> Vec<Theme> {
                 bold: [241, 250, 140],
                 code: [80, 250, 123],
                 link: [139, 233, 253],
+                todo: [255, 184, 108],
             },
             edit: EditPalette {
                 heading: [255, 121, 198],
@@ -388,6 +392,7 @@ pub fn themes() -> Vec<Theme> {
                 bold: [255, 213, 128],
                 code: [255, 170, 66],
                 link: [140, 209, 255],
+                todo: [255, 121, 121],
             },
             edit: EditPalette {
                 heading: [102, 217, 197],
@@ -411,6 +416,7 @@ pub fn themes() -> Vec<Theme> {
                 bold: [20, 20, 20],
                 code: [178, 89, 0],
                 link: [35, 120, 190],
+                todo: [200, 40, 40],
             },
             edit: EditPalette {
                 heading: [176, 58, 110],
@@ -434,6 +440,7 @@ pub fn themes() -> Vec<Theme> {
                 bold: [25, 25, 20],
                 code: [176, 108, 0],
                 link: [30, 110, 160],
+                todo: [190, 50, 50],
             },
             edit: EditPalette {
                 heading: [46, 139, 87],

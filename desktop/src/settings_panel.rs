@@ -51,6 +51,7 @@ pub fn draw(ui: &mut egui::Ui, settings: &mut Settings, show_settings: &mut bool
             changed |= color_row(ui, "Bold", &mut settings.render.bold);
             changed |= color_row(ui, "Code", &mut settings.render.code);
             changed |= color_row(ui, "Links", &mut settings.render.link);
+            changed |= color_row(ui, "TODO", &mut settings.render.todo);
         });
 
         section(ui, "Edit mode", |ui| {

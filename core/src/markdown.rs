@@ -32,6 +32,20 @@ impl Block {
             Block::Heading { lines, .. } | Block::Paragraph { lines } => lines,
         }
     }
+
+    /// This block's plain text, flattened across every line and span, discarding all styling —
+    /// e.g. used to read a heading's title text (see [`title`]) or to detect a paragraph that
+    /// starts with "TODO" (see `crate::todo::is_todo`).
+    pub fn text(&self) -> String {
+        let lines = match self {
+            Block::Heading { lines, .. } | Block::Paragraph { lines } => lines,
+        };
+        lines
+            .iter()
+            .flatten()
+            .map(|span| span.text.as_str())
+            .collect()
+    }
 }
 
 /// Extracts every link destination in `source`, in document order (including duplicates and
@@ -52,14 +66,8 @@ pub fn extract_links(source: &str) -> Vec<String> {
 pub fn title(source: &str) -> Option<String> {
     collect_blocks(source)
         .into_iter()
-        .find_map(|block| match block {
-            Block::Heading { lines, .. } => Some(
-                lines
-                    .iter()
-                    .flatten()
-                    .map(|span| span.text.as_str())
-                    .collect(),
-            ),
+        .find_map(|block| match &block {
+            Block::Heading { .. } => Some(block.text()),
             Block::Paragraph { .. } => None,
         })
 }

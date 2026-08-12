@@ -3,12 +3,13 @@ use pulldown_cmark::HeadingLevel;
 
 use my_story_notes_core::markdown::{Block, Span, collect_blocks};
 use my_story_notes_core::settings::RenderPalette;
+use my_story_notes_core::todo::is_todo;
 
 use crate::fonts;
 use crate::style;
 
-/// Renders `source` as markdown into `ui`, using `palette` for headings/bold/code/link colors
-/// and `body_size` as the base font size (headings scale off of it).
+/// Renders `source` as markdown into `ui`, using `palette` for headings/bold/code/link/TODO
+/// colors and `body_size` as the base font size (headings scale off of it).
 pub fn render(
     ui: &mut Ui,
     source: &str,
@@ -29,12 +30,29 @@ pub fn render(
                 };
 
                 ui.add_space(4.0);
-                render_lines(ui, lines, Some(size), palette, body_size, &mut clicked_link);
+                render_lines(
+                    ui,
+                    lines,
+                    Some(size),
+                    false,
+                    palette,
+                    body_size,
+                    &mut clicked_link,
+                );
                 ui.add_space(4.0);
             }
 
             Block::Paragraph { lines } => {
-                render_lines(ui, lines, None, palette, body_size, &mut clicked_link);
+                let is_todo = is_todo(&block.text());
+                render_lines(
+                    ui,
+                    lines,
+                    None,
+                    is_todo,
+                    palette,
+                    body_size,
+                    &mut clicked_link,
+                );
             }
         }
     }
@@ -46,6 +64,7 @@ fn render_lines(
     ui: &mut Ui,
     lines: &[Vec<Span>],
     heading_size: Option<f32>,
+    is_todo: bool,
     palette: &RenderPalette,
     body_size: f32,
     clicked_link: &mut Option<String>,
@@ -55,7 +74,15 @@ fn render_lines(
             ui.spacing_mut().item_spacing.x = 0.0;
 
             for span in line {
-                render_span(ui, span, heading_size, palette, body_size, clicked_link);
+                render_span(
+                    ui,
+                    span,
+                    heading_size,
+                    is_todo,
+                    palette,
+                    body_size,
+                    clicked_link,
+                );
             }
         });
     }
@@ -65,11 +92,12 @@ fn render_span(
     ui: &mut Ui,
     span: &Span,
     heading_size: Option<f32>,
+    is_todo: bool,
     palette: &RenderPalette,
     body_size: f32,
     clicked_link: &mut Option<String>,
 ) {
-    let bold = span.bold || heading_size.is_some();
+    let bold = span.bold || heading_size.is_some() || is_todo;
     let size = heading_size.unwrap_or(body_size);
     let mut rich_text = egui::RichText::new(&span.text);
 
@@ -79,11 +107,14 @@ fn render_span(
         rich_text = rich_text.font(fonts::serif(size, bold, span.italic));
     }
 
-    // Priority mirrors the edit-mode highlighter: code beats heading beats link beats bold.
+    // Priority mirrors the edit-mode highlighter: code beats heading beats TODO beats link beats
+    // bold.
     let color = if span.code {
         Some(palette.code)
     } else if heading_size.is_some() {
         Some(palette.heading)
+    } else if is_todo {
+        Some(palette.todo)
     } else if span.link.is_some() {
         Some(palette.link)
     } else if span.bold {
