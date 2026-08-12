@@ -29,7 +29,7 @@ pub(super) fn draw_background_pattern(
         to_world(canvas_rect, view, canvas_rect.max),
     );
 
-    for [a, b] in pattern_segments(pattern, visible) {
+    for [a, b] in pattern_segments(pattern, visible, view.zoom) {
         painter.line_segment(
             [
                 to_screen(canvas_rect, view, a),
@@ -42,8 +42,10 @@ pub(super) fn draw_background_pattern(
 
 /// World-space line segments for `pattern`, covering `visible` (with enough margin that nothing
 /// is visibly clipped) — the pure geometry [`draw_background_pattern`] then projects to screen
-/// space and paints.
-fn pattern_segments(pattern: GraphPattern, visible: Rect) -> Vec<[Pos2; 2]> {
+/// space and paints. `zoom` (screen pixels per world unit) only affects [`GraphPattern::Spiral`],
+/// whose curve is approximated by a polyline fine enough to look smooth at the current zoom; every
+/// other pattern is already made of dead-straight lines, which stay smooth at any zoom.
+fn pattern_segments(pattern: GraphPattern, visible: Rect, zoom: f32) -> Vec<[Pos2; 2]> {
     use std::f32::consts::{FRAC_PI_3, PI};
 
     match pattern {
@@ -57,7 +59,7 @@ fn pattern_segments(pattern: GraphPattern, visible: Rect) -> Vec<[Pos2; 2]> {
             .flat_map(|angle| parallel_line_family(visible, angle, PATTERN_SPACING))
             .collect(),
         GraphPattern::Rays => ray_segments(visible),
-        GraphPattern::Spiral => spiral_segments(visible),
+        GraphPattern::Spiral => spiral_segments(visible, zoom),
     }
 }
 
@@ -133,35 +135,67 @@ const SPIRAL_ARM_COUNT: usize = 2;
 /// [`PATTERN_SPACING`] every full turn), all centered on the world origin and evenly rotated
 /// around it, each approximated as a polyline out to the same radius [`ray_segments`] reaches —
 /// see [`spiral_arm_segments`] for a single arm.
-fn spiral_segments(visible: Rect) -> Vec<[Pos2; 2]> {
+fn spiral_segments(visible: Rect, zoom: f32) -> Vec<[Pos2; 2]> {
     let max_radius = max_corner_distance_from_origin(visible);
 
     (0..SPIRAL_ARM_COUNT)
         .flat_map(|arm| {
             let phase = arm as f32 / SPIRAL_ARM_COUNT as f32 * std::f32::consts::TAU;
-            spiral_arm_segments(max_radius, phase)
+            spiral_arm_segments(max_radius, phase, zoom)
         })
         .collect()
 }
 
+/// Target on-screen length for each of [`spiral_arm_segments`]'s polyline segments, in pixels —
+/// small enough to read as a smooth curve. The angular step between consecutive points is chosen
+/// fresh every segment so its chord stays close to this length regardless of the spiral's local
+/// radius or the camera's current zoom, rather than a single fixed angular step: a fixed step
+/// makes the tightly-wound turns near the center look fine but the far-out, larger-radius turns
+/// visibly faceted, since the same angular step spans an ever-longer chord as the radius grows.
+const SPIRAL_TARGET_SEGMENT_PIXELS: f32 = 6.0;
+
+/// Upper bound on [`spiral_arm_segments`]'s adaptive angular step — without it, the step implied
+/// by [`SPIRAL_TARGET_SEGMENT_PIXELS`] would blow up near the origin (where the radius, and so the
+/// implied step, approaches infinity), leaving only a handful of segments to draw the spiral's
+/// tightest turns.
+const SPIRAL_MAX_STEP: f32 = 0.2;
+
+/// Hard cap on how many segments [`spiral_arm_segments`] will ever generate, regardless of how
+/// small the target chord length implies the step should be — an extreme zoom-out on a very large
+/// canvas could otherwise imply an unreasonable number of vanishingly short segments. At that
+/// point the spiral is already far finer than the eye can resolve, so simply stopping short of
+/// `max_radius` once the budget runs out is an invisible trade-off, not a visible truncation.
+const SPIRAL_MAX_SEGMENTS_PER_ARM: usize = 3_000;
+
 /// One arm of an Archimedean spiral (radius growing by [`PATTERN_SPACING`] every full turn),
 /// starting at the world origin and rotated by `phase` radians, approximated as a polyline out to
-/// `max_radius`.
-fn spiral_arm_segments(max_radius: f32, phase: f32) -> Vec<[Pos2; 2]> {
-    /// Radians per polyline segment — small enough for the curve to look smooth.
-    const STEP: f32 = 0.2;
-
+/// `max_radius` — see [`SPIRAL_TARGET_SEGMENT_PIXELS`] for how finely.
+fn spiral_arm_segments(max_radius: f32, phase: f32, zoom: f32) -> Vec<[Pos2; 2]> {
     let growth_per_radian = PATTERN_SPACING / std::f32::consts::TAU;
+    let target_chord = SPIRAL_TARGET_SEGMENT_PIXELS / zoom;
 
     let mut segments = Vec::new();
-    let mut theta = STEP;
+    let mut theta = 0.0f32;
     let mut prev = Pos2::ZERO;
 
-    while growth_per_radian * theta <= max_radius {
-        let point = Pos2::ZERO + Vec2::angled(theta + phase) * (growth_per_radian * theta);
+    while segments.len() < SPIRAL_MAX_SEGMENTS_PER_ARM {
+        // A spiral's local curvature is dominated by its circumferential motion rather than its
+        // slow radial growth, so the angular step needed for a chord of about `target_chord`
+        // world units is approximately `target_chord / radius` — capped above by
+        // `SPIRAL_MAX_STEP` alone (dividing by a radius of exactly zero, at the very center,
+        // yields `f32::INFINITY`, which `f32::min` correctly clamps down to it).
+        let radius_here = growth_per_radian * theta;
+        let step = (target_chord / radius_here).min(SPIRAL_MAX_STEP);
+        theta += step;
+
+        let radius = growth_per_radian * theta;
+        if radius > max_radius {
+            break;
+        }
+
+        let point = Pos2::ZERO + Vec2::angled(theta + phase) * radius;
         segments.push([prev, point]);
         prev = point;
-        theta += STEP;
     }
 
     segments
@@ -227,7 +261,7 @@ mod tests {
     fn spiral_arm_segments_form_a_continuous_polyline_with_growing_radius() {
         let max_radius = 150.0;
 
-        let segments = spiral_arm_segments(max_radius, 0.0);
+        let segments = spiral_arm_segments(max_radius, 0.0, 1.0);
         assert!(!segments.is_empty());
 
         assert_eq!(
@@ -263,8 +297,8 @@ mod tests {
         let visible = Rect::from_min_max(Pos2::new(-100.0, -100.0), Pos2::new(100.0, 100.0));
         let max_radius = max_corner_distance_from_origin(visible);
 
-        let segments = spiral_segments(visible);
-        let one_arm = spiral_arm_segments(max_radius, 0.0);
+        let segments = spiral_segments(visible, 1.0);
+        let one_arm = spiral_arm_segments(max_radius, 0.0, 1.0);
 
         assert_eq!(
             segments.len(),
@@ -292,13 +326,48 @@ mod tests {
     }
 
     #[test]
+    fn spiral_arm_segments_bounds_each_segments_on_screen_length_regardless_of_radius() {
+        // Large enough that a fixed angular step would produce a visibly long, straight-looking
+        // chord on the outer rings.
+        let max_radius = 3000.0;
+        let zoom = 1.0;
+
+        let segments = spiral_arm_segments(max_radius, 0.0, zoom);
+
+        for &[a, b] in &segments {
+            let screen_chord_length = (b - a).length() * zoom;
+            assert!(
+                screen_chord_length <= SPIRAL_TARGET_SEGMENT_PIXELS * 1.5,
+                "segment from {a:?} to {b:?} is {screen_chord_length}px on screen, \
+                 wider than the {SPIRAL_TARGET_SEGMENT_PIXELS}px target"
+            );
+        }
+    }
+
+    #[test]
+    fn spiral_arm_segments_uses_coarser_world_space_steps_when_zoomed_out() {
+        let max_radius = 500.0;
+
+        let zoomed_in = spiral_arm_segments(max_radius, 0.0, 4.0);
+        let zoomed_out = spiral_arm_segments(max_radius, 0.0, 0.25);
+
+        assert!(
+            zoomed_out.len() < zoomed_in.len(),
+            "a more zoomed-out view should need fewer, coarser world-space segments to look \
+             just as smooth on screen: {} zoomed-out segments vs {} zoomed-in",
+            zoomed_out.len(),
+            zoomed_in.len()
+        );
+    }
+
+    #[test]
     fn pattern_segments_is_empty_only_for_none() {
         let visible = Rect::from_min_max(Pos2::new(-50.0, -50.0), Pos2::new(50.0, 50.0));
 
-        assert!(pattern_segments(GraphPattern::None, visible).is_empty());
-        assert!(!pattern_segments(GraphPattern::SquareGrid, visible).is_empty());
-        assert!(!pattern_segments(GraphPattern::TriangularGrid, visible).is_empty());
-        assert!(!pattern_segments(GraphPattern::Rays, visible).is_empty());
-        assert!(!pattern_segments(GraphPattern::Spiral, visible).is_empty());
+        assert!(pattern_segments(GraphPattern::None, visible, 1.0).is_empty());
+        assert!(!pattern_segments(GraphPattern::SquareGrid, visible, 1.0).is_empty());
+        assert!(!pattern_segments(GraphPattern::TriangularGrid, visible, 1.0).is_empty());
+        assert!(!pattern_segments(GraphPattern::Rays, visible, 1.0).is_empty());
+        assert!(!pattern_segments(GraphPattern::Spiral, visible, 1.0).is_empty());
     }
 }
