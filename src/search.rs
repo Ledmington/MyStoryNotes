@@ -143,6 +143,7 @@ mod tests {
             name: name.to_owned(),
             source: source.to_owned(),
             is_manuscript: false,
+            category: None,
         }
     }
 
@@ -155,6 +156,7 @@ mod tests {
                 note("Bob", "Alice's brother."),
                 note("Lighthouse", "A landmark on the cliffs."),
             ],
+            categories: Vec::new(),
         };
 
         assert_eq!(
@@ -174,6 +176,7 @@ mod tests {
         let project = Project {
             path: None,
             notes: vec![note("Alice", "")],
+            categories: Vec::new(),
         };
 
         assert!(search_notes(&project, "").is_empty());

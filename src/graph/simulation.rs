@@ -264,6 +264,7 @@ mod tests {
             name: name.to_owned(),
             source: String::new(),
             is_manuscript: false,
+            category: None,
         }
     }
 

@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use eframe::egui;
 
 use crate::{
-    graph,
+    categories_panel, graph,
     logging::Notifications,
     markdown, note_editor,
     project::{NoteId, Project},
@@ -141,6 +141,7 @@ pub struct App {
     note_sort: NoteSort,
     settings: Settings,
     show_settings: bool,
+    show_categories: bool,
     search: Search,
     notifications: Notifications,
     graph_sim: graph::Simulation,
@@ -171,6 +172,7 @@ impl App {
             note_sort: NoteSort::Unsorted,
             settings: Settings::load(),
             show_settings: false,
+            show_categories: false,
             search: Search::default(),
             notifications,
             graph_sim: graph::Simulation::new(),
@@ -814,6 +816,19 @@ impl eframe::App for App {
                     {
                         self.search.open();
                     }
+
+                    ui.separator();
+
+                    let label =
+                        crate::fonts::icon_label(ui, crate::fonts::icon::TAGS, "Categories");
+
+                    if ui
+                        .button(label)
+                        .on_hover_text("Manage this project's note categories")
+                        .clicked()
+                    {
+                        self.show_categories = !self.show_categories;
+                    }
                 }
 
                 ui.separator();
@@ -976,6 +991,10 @@ impl eframe::App for App {
             }
         }
 
+        if let Some(project) = &mut self.project {
+            categories_panel::draw(ui.ctx(), project, &mut self.show_categories);
+        }
+
         self.draw_notifications(ui.ctx());
         self.draw_save_status(ui.ctx());
 
@@ -1104,6 +1123,17 @@ fn draw_cell(
             );
         }
 
+        // The manuscript note isn't drawn as a node in the graph view at all (see
+        // `crate::graph::resolve_edges`), so a category assigned to it would have nothing to
+        // color.
+        let is_manuscript = project
+            .notes
+            .get(usize::from(cell.note_index))
+            .is_some_and(|note| note.is_manuscript);
+        if !is_manuscript && !project.categories.is_empty() {
+            draw_category_picker(ui, project, cell.note_index);
+        }
+
         match cell.mode {
             CellMode::Rendered => {
                 let Some(note) = project.notes.get(usize::from(cell.note_index)) else {
@@ -1182,6 +1212,33 @@ fn draw_cell(
     }
 
     action
+}
+
+/// A labeled dropdown to assign the note at `note_index` to one of `project.categories`, or back
+/// to none. Only shown by [`draw_cell`] once the project actually has at least one category —
+/// an empty dropdown would just be clutter.
+fn draw_category_picker(ui: &mut egui::Ui, project: &mut Project, note_index: NoteId) {
+    let Some(note) = project.notes.get(usize::from(note_index)) else {
+        return;
+    };
+    let mut selected = note.category.clone();
+
+    ui.horizontal(|ui| {
+        ui.label("Category:");
+
+        egui::ComboBox::from_id_salt(("note_category", note_index))
+            .selected_text(selected.as_deref().unwrap_or("None"))
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut selected, None, "None");
+                for category in &project.categories {
+                    ui.selectable_value(&mut selected, Some(category.name.clone()), &category.name);
+                }
+            });
+    });
+
+    if let Some(note) = project.notes.get_mut(usize::from(note_index)) {
+        note.category = selected;
+    }
 }
 
 /// Whether a clicked link's destination looks like a web address rather than another note's

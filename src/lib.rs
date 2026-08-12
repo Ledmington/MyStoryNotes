@@ -4,6 +4,7 @@
 #![forbid(unsafe_code)]
 
 pub mod app;
+pub mod categories_panel;
 pub mod fonts;
 pub mod graph;
 pub mod logging;

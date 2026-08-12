@@ -88,6 +88,7 @@ mod tests {
             name: name.to_owned(),
             source: source.to_owned(),
             is_manuscript,
+            category: None,
         }
     }
 
@@ -104,6 +105,7 @@ mod tests {
                 note("Bob", "", false),
                 note("Manuscript", "Mentions [Alice](Alice).", true),
             ],
+            categories: Vec::new(),
         };
 
         let edges = resolve_edges(&project);
@@ -125,6 +127,7 @@ mod tests {
                 note("Alice", "[Manuscript](Manuscript)", false),
                 note("Manuscript", "[Alice](Alice)", true),
             ],
+            categories: Vec::new(),
         };
 
         assert_eq!(connection_counts(&project), vec![0, 0]);

@@ -575,11 +575,14 @@ fn draw_nodes(
         } else {
             style.colors.edge
         };
+        let fill = project
+            .category_color(&project.notes[usize::from(index)])
+            .map_or(style.colors.node_fill, settings::rgb);
 
         painter.rect(
             screen_rect,
             4.0 * style.zoom,
-            style.colors.node_fill,
+            fill,
             Stroke::new(if highlighted { 2.0 } else { 1.0 } * style.zoom, border),
             StrokeKind::Outside,
         );

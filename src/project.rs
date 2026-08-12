@@ -50,10 +50,25 @@ pub struct Note {
     /// rather than writing out `is_manuscript = false` on every single one of them.
     #[serde(default, skip_serializing_if = "is_false")]
     pub is_manuscript: bool,
+    /// This note's category (see [`Project::categories`]), by name, if it has one — colors its
+    /// node in the graph view. `None` (the field is omitted from the save file entirely) draws
+    /// it with the graph view's default node color instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
 }
 
 fn is_false(value: &bool) -> bool {
     !value
+}
+
+/// A named color for grouping notes in the graph view, e.g. "Character", "Place", "Event" —
+/// see [`Project::categories`]. Unlike [`crate::settings::UiPalette`] and friends, this is
+/// per-project rather than a global app setting, since different projects want different
+/// categories (or none at all).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Category {
+    pub name: String,
+    pub color: [u8; 3],
 }
 
 /// On-disk representation of a project file.
@@ -61,6 +76,8 @@ fn is_false(value: &bool) -> bool {
 struct ProjectFile {
     #[serde(default)]
     notes: Vec<Note>,
+    #[serde(default)]
+    categories: Vec<Category>,
 }
 
 /// A story project: a set of notes persisted to a single, human-readable file.
@@ -69,6 +86,10 @@ pub struct Project {
     /// The file this project was opened from or last saved to. `None` for a new, unsaved project.
     pub path: Option<PathBuf>,
     pub notes: Vec<Note>,
+    /// The project's note categories, available to assign to any [`Note`] via
+    /// [`Note::category`] — see [`Self::rename_category`] and [`Self::delete_category`] for
+    /// the operations that also need to keep notes' assignments in sync.
+    pub categories: Vec<Category>,
 }
 
 impl Project {
@@ -93,6 +114,7 @@ impl Project {
         Ok(Self {
             path: Some(path),
             notes: file.notes,
+            categories: file.categories,
         })
     }
 
@@ -101,6 +123,7 @@ impl Project {
     pub fn save(&self, path: &Path) -> io::Result<()> {
         let file = ProjectFile {
             notes: self.notes.clone(),
+            categories: self.categories.clone(),
         };
 
         let text = toml::to_string_pretty(&file).map_err(io::Error::other)?;
@@ -135,6 +158,7 @@ impl Project {
             name: name.to_owned(),
             source: String::new(),
             is_manuscript: false,
+            category: None,
         });
 
         self.notes.sort_by(|a, b| a.name.cmp(&b.name));
@@ -225,6 +249,111 @@ impl Project {
         self.notes[usize::from(id)].is_manuscript = true;
         Ok(id)
     }
+
+    /// Adds a new category named `name` in `color`. Rejects a name already in use by another
+    /// category, the same as [`Self::create_note`] does for note names.
+    pub fn add_category(&mut self, name: &str, color: [u8; 3]) -> io::Result<()> {
+        let name = name.trim();
+
+        if name.is_empty() {
+            log::warn!("Rejected category creation: name cannot be empty");
+
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Category name cannot be empty",
+            ));
+        }
+
+        if self.categories.iter().any(|category| category.name == name) {
+            log::warn!("Rejected category creation: '{name}' already exists");
+
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "A category with this name already exists",
+            ));
+        }
+
+        self.categories.push(Category {
+            name: name.to_owned(),
+            color,
+        });
+
+        Ok(())
+    }
+
+    /// Renames the category `old_name` to `new_name`, updating every note assigned to it (see
+    /// [`Note::category`]) so they stay assigned to the renamed category rather than being
+    /// silently orphaned.
+    pub fn rename_category(&mut self, old_name: &str, new_name: &str) -> io::Result<()> {
+        let new_name = new_name.trim();
+
+        if new_name.is_empty() {
+            log::warn!("Rejected category rename: name cannot be empty");
+
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Category name cannot be empty",
+            ));
+        }
+
+        if old_name == new_name {
+            return Ok(());
+        }
+
+        if self
+            .categories
+            .iter()
+            .any(|category| category.name == new_name)
+        {
+            log::warn!("Rejected category rename: '{new_name}' already exists");
+
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "A category with this name already exists",
+            ));
+        }
+
+        let Some(category) = self
+            .categories
+            .iter_mut()
+            .find(|category| category.name == old_name)
+        else {
+            return Err(io::Error::new(io::ErrorKind::NotFound, "No such category"));
+        };
+        category.name = new_name.to_owned();
+
+        for note in &mut self.notes {
+            if note.category.as_deref() == Some(old_name) {
+                note.category = Some(new_name.to_owned());
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Removes the category `name`, clearing it (back to no category) from every note currently
+    /// assigned to it.
+    pub fn delete_category(&mut self, name: &str) {
+        self.categories.retain(|category| category.name != name);
+
+        for note in &mut self.notes {
+            if note.category.as_deref() == Some(name) {
+                note.category = None;
+            }
+        }
+    }
+
+    /// The color of `note`'s assigned category (see [`Note::category`]), if it has one and that
+    /// category still exists — used to color its node in the graph view, in place of the
+    /// default node color. The color of a node never affects the color its connections are
+    /// drawn in.
+    pub fn category_color(&self, note: &Note) -> Option<[u8; 3]> {
+        let name = note.category.as_deref()?;
+        self.categories
+            .iter()
+            .find(|category| category.name == name)
+            .map(|category| category.color)
+    }
 }
 
 #[cfg(test)]
@@ -239,13 +368,16 @@ mod tests {
                     name: "Alice".to_owned(),
                     source: String::new(),
                     is_manuscript: false,
+                    category: None,
                 },
                 Note {
                     name: "Manuscript".to_owned(),
                     source: String::new(),
                     is_manuscript: true,
+                    category: None,
                 },
             ],
+            categories: Vec::new(),
         };
 
         let text = toml::to_string_pretty(&file).unwrap();
@@ -390,6 +522,73 @@ mod tests {
         assert_eq!(
             NoteId::from(5).after_removing(removed),
             Some(NoteId::from(4))
+        );
+    }
+
+    #[test]
+    fn add_category_rejects_a_name_already_in_use() {
+        let mut project = Project::new();
+        project.add_category("Character", [255, 0, 0]).unwrap();
+
+        assert!(project.add_category("Character", [0, 255, 0]).is_err());
+        assert_eq!(project.categories.len(), 1);
+        assert_eq!(project.categories[0].color, [255, 0, 0]);
+    }
+
+    #[test]
+    fn rename_category_updates_the_name_and_every_note_assigned_to_it() {
+        let mut project = Project::new();
+        project.add_category("Character", [255, 0, 0]).unwrap();
+        let alice = project.create_note("Alice").unwrap();
+        project.notes[usize::from(alice)].category = Some("Character".to_owned());
+
+        project.rename_category("Character", "Person").unwrap();
+
+        assert_eq!(project.categories[0].name, "Person");
+        assert_eq!(
+            project.notes[usize::from(alice)].category.as_deref(),
+            Some("Person")
+        );
+    }
+
+    #[test]
+    fn rename_category_rejects_a_name_already_in_use() {
+        let mut project = Project::new();
+        project.add_category("Character", [255, 0, 0]).unwrap();
+        project.add_category("Place", [0, 255, 0]).unwrap();
+
+        assert!(project.rename_category("Character", "Place").is_err());
+        assert_eq!(project.categories[0].name, "Character");
+    }
+
+    #[test]
+    fn delete_category_removes_it_and_clears_it_from_every_note_assigned_to_it() {
+        let mut project = Project::new();
+        project.add_category("Character", [255, 0, 0]).unwrap();
+        let alice = project.create_note("Alice").unwrap();
+        project.notes[usize::from(alice)].category = Some("Character".to_owned());
+
+        project.delete_category("Character");
+
+        assert!(project.categories.is_empty());
+        assert_eq!(project.notes[usize::from(alice)].category, None);
+    }
+
+    #[test]
+    fn category_color_resolves_a_note_s_assigned_category() {
+        let mut project = Project::new();
+        project.add_category("Character", [255, 0, 0]).unwrap();
+        let alice = project.create_note("Alice").unwrap();
+        project.notes[usize::from(alice)].category = Some("Character".to_owned());
+        let bob = project.create_note("Bob").unwrap();
+
+        assert_eq!(
+            project.category_color(&project.notes[usize::from(alice)]),
+            Some([255, 0, 0])
+        );
+        assert_eq!(
+            project.category_color(&project.notes[usize::from(bob)]),
+            None
         );
     }
 }
