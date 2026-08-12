@@ -75,6 +75,11 @@ pub fn draw(ui: &mut egui::Ui, settings: &mut Settings, show_settings: &mut bool
         }
 
         ui.add_space(12.0);
+        ui.label("Graph background");
+        changed |= color_row(ui, "Canvas color", &mut settings.graph_background.color);
+        changed |= pattern_row(ui, &mut settings.graph_background.pattern);
+
+        ui.add_space(12.0);
         ui.label("Graph physics");
         changed |= simulation_param_row(
             ui,
@@ -142,6 +147,30 @@ fn color_row(ui: &mut egui::Ui, label: &str, color: &mut [u8; 3]) -> bool {
     });
 
     changed
+}
+
+/// A labeled dropdown row for picking a [`crate::settings::GraphPattern`]. Returns whether the
+/// selection changed this frame.
+fn pattern_row(ui: &mut egui::Ui, pattern: &mut crate::settings::GraphPattern) -> bool {
+    use crate::settings::GraphPattern;
+
+    ui.horizontal(|ui| {
+        ui.label("Pattern");
+
+        let mut changed = false;
+        egui::ComboBox::from_id_salt("graph_background_pattern")
+            .selected_text(pattern.label())
+            .show_ui(ui, |ui| {
+                for option in GraphPattern::ALL {
+                    changed |= ui
+                        .selectable_value(pattern, option, option.label())
+                        .changed();
+                }
+            });
+
+        changed
+    })
+    .inner
 }
 
 /// A labeled font-size slider row. Returns whether the size changed this frame.

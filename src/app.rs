@@ -933,7 +933,10 @@ impl eframe::App for App {
                         open_note,
                         hovered_note,
                     },
-                    &self.settings.ui,
+                    graph::GraphAppearance {
+                        palette: &self.settings.ui,
+                        background: &self.settings.graph_background,
+                    },
                     &self.settings.simulation,
                     &mut self.graph_sim,
                     &mut self.graph_view,
@@ -958,7 +961,10 @@ impl eframe::App for App {
                             open_note,
                             hovered_note,
                         },
-                        &self.settings.ui,
+                        graph::GraphAppearance {
+                            palette: &self.settings.ui,
+                            background: &self.settings.graph_background,
+                        },
                         &self.settings.simulation,
                         &mut self.graph_sim,
                         &mut self.graph_view,

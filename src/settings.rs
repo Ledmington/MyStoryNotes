@@ -214,10 +214,79 @@ impl Default for AutosaveSettings {
 /// How many entries [`Settings::record_recent_project`] keeps in [`Settings::recent_projects`].
 const RECENT_PROJECTS_LIMIT: usize = 10;
 
+/// A minimal, non-photographic pattern drawn behind the graph view, purely so an empty or sparse
+/// canvas doesn't feel quite so bare — see [`GraphBackground`]. Anchored in world space, so it
+/// pans and zooms along with the graph rather than staying fixed on screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum GraphPattern {
+    #[default]
+    None,
+    SquareGrid,
+    TriangularGrid,
+    Rays,
+    Spiral,
+}
+
+impl GraphPattern {
+    /// Every variant, in the order offered in the Settings panel.
+    pub const ALL: [Self; 5] = [
+        Self::None,
+        Self::SquareGrid,
+        Self::TriangularGrid,
+        Self::Rays,
+        Self::Spiral,
+    ];
+
+    /// A short, human-readable label for the Settings panel.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::None => "None",
+            Self::SquareGrid => "Square grid",
+            Self::TriangularGrid => "Triangular grid",
+            Self::Rays => "Rays",
+            Self::Spiral => "Spiral",
+        }
+    }
+}
+
+/// The graph view's background: a base color, editable directly (unlike every other UI color,
+/// this one isn't derived from [`UiPalette::panel_background`], so the canvas can be tuned
+/// independently of the rest of the chrome) plus an optional [`GraphPattern`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GraphBackground {
+    pub color: [u8; 3],
+    pub pattern: GraphPattern,
+}
+
+impl Default for GraphBackground {
+    fn default() -> Self {
+        Self {
+            color: default_graph_background_color(UiPalette::default().panel_background),
+            pattern: GraphPattern::default(),
+        }
+    }
+}
+
+/// A default graph-canvas color derived from `panel_background`: slightly darker, so nodes and
+/// edges (both only subtly lighter than the panel) have something to stand out against. Used for
+/// [`GraphBackground::default`] and to keep the canvas looking consistent whenever
+/// [`Settings::apply_theme`] switches themes — `graph_background.color` is a plain, directly
+/// editable field otherwise, so this is only ever a *starting point* the user can still tweak
+/// away from afterward.
+fn default_graph_background_color(panel_background: [u8; 3]) -> [u8; 3] {
+    let darken = |channel: u8| (f32::from(channel) * 0.88).round() as u8;
+    [
+        darken(panel_background[0]),
+        darken(panel_background[1]),
+        darken(panel_background[2]),
+    ]
+}
+
 /// The app's persisted preferences: the three color palettes, font sizes, graph physics
-/// parameters, autosave interval, and recently opened projects, all editable (or, for the
-/// latter, at least clickable) from the main window. Stored as a single human-readable TOML file
-/// at `~/.my_story_notes`, independent of any story project.
+/// parameters, autosave interval, recently opened projects, and graph background, all editable
+/// (or, for the recent-projects list, at least clickable) from the main window. Stored as a
+/// single human-readable TOML file at `~/.my_story_notes`, independent of any story project.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -229,6 +298,7 @@ pub struct Settings {
     pub autosave: AutosaveSettings,
     /// Most-recently-used project paths first, for the "Open Recent Project" menu.
     pub recent_projects: Vec<PathBuf>,
+    pub graph_background: GraphBackground,
 }
 
 impl Settings {
@@ -430,6 +500,7 @@ impl Settings {
         self.ui = theme.ui.clone();
         self.render = theme.render.clone();
         self.edit = theme.edit.clone();
+        self.graph_background.color = default_graph_background_color(self.ui.panel_background);
     }
 }
 

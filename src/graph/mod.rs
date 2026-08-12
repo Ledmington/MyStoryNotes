@@ -6,7 +6,7 @@ use crate::markdown;
 use crate::project::{NoteId, Project};
 
 pub use simulation::{Simulation, settle};
-pub use view::{NoteHighlight, View, draw};
+pub use view::{GraphAppearance, NoteHighlight, View, draw};
 
 /// An edge's position in the resolved edge list, for tracking which one (if any) the mouse is
 /// hovering. A thin `usize` wrapper so it can't be confused with a [`NoteId`], even though both
