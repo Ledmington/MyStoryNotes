@@ -925,66 +925,40 @@ impl eframe::App for App {
 
             let open_note = self.open_cell.as_ref().map(|cell| cell.note_index);
 
-            let Some(cell) = &mut self.open_cell else {
-                if let Some(clicked) = graph::draw(
-                    ui,
-                    project,
-                    graph::NoteHighlight {
-                        open_note,
-                        hovered_note,
-                    },
-                    graph::GraphAppearance {
-                        palette: &self.settings.ui,
-                        background: &self.settings.graph_background,
-                    },
-                    &self.settings.simulation,
-                    &mut self.graph_sim,
-                    &mut self.graph_view,
-                ) {
-                    self.open_cell = Some(Cell {
-                        note_index: clicked,
-                        mode: CellMode::Rendered,
-                    });
-                }
-
-                return;
-            };
-
-            egui::Panel::left("graph_panel")
-                .resizable(true)
-                .default_size(360.0)
-                .show(ui, |ui| {
-                    if let Some(clicked) = graph::draw(
-                        ui,
-                        project,
-                        graph::NoteHighlight {
-                            open_note,
-                            hovered_note,
-                        },
-                        graph::GraphAppearance {
-                            palette: &self.settings.ui,
-                            background: &self.settings.graph_background,
-                        },
-                        &self.settings.simulation,
-                        &mut self.graph_sim,
-                        &mut self.graph_view,
-                    ) {
+            if let Some(clicked) = graph::draw(
+                ui,
+                project,
+                graph::NoteHighlight {
+                    open_note,
+                    hovered_note,
+                },
+                graph::GraphAppearance {
+                    palette: &self.settings.ui,
+                    background: &self.settings.graph_background,
+                },
+                &self.settings.simulation,
+                &mut self.graph_sim,
+                &mut self.graph_view,
+            ) {
+                match &mut self.open_cell {
+                    Some(cell) => {
                         cell.note_index = clicked;
                         cell.mode = CellMode::Rendered;
                     }
-                });
+                    None => {
+                        self.open_cell = Some(Cell {
+                            note_index: clicked,
+                            mode: CellMode::Rendered,
+                        });
+                    }
+                }
+            }
+        });
 
-            // The note's width is capped to the smaller of what the graph panel actually leaves
-            // it and half the window, so it can still shrink below half (as the graph panel
-            // grows) but never grow past it. `Ui::set_max_width` sets an exact width rather than
-            // an upper bound, so that smaller value has to be computed ourselves first.
-            let half_window_width = ui.ctx().input(|input| input.viewport_rect().width()) * 0.5;
-            let max_note_width = ui.available_width().min(half_window_width);
-            let mut cell_action = None;
-            ui.scope(|ui| {
-                ui.set_max_width(max_note_width);
-                cell_action = draw_cell(ui, project, cell, &self.settings);
-            });
+        if let Some(project) = &mut self.project
+            && let Some(cell) = &mut self.open_cell
+        {
+            let cell_action = draw_note_window(ui.ctx(), project, cell, &self.settings);
 
             match cell_action {
                 Some(CellAction::Rename) => {
@@ -1000,7 +974,7 @@ impl eframe::App for App {
                 }
                 None => {}
             }
-        });
+        }
 
         self.draw_notifications(ui.ctx());
         self.draw_save_status(ui.ctx());
@@ -1028,6 +1002,37 @@ enum CellAction {
     Close,
 }
 
+/// Draws the currently open note as a floating, resizable, movable window on top of the graph
+/// view (which otherwise always occupies the whole central area — see [`eframe::App::ui`]),
+/// rather than splitting the graph into a side panel to make room for it. The window keeps a
+/// fixed [`egui::Id`] rather than one derived from its title, so resizing or moving it persists
+/// across switching to a different note (e.g. by clicking a link) instead of resetting.
+fn draw_note_window(
+    ctx: &egui::Context,
+    project: &mut Project,
+    cell: &mut Cell,
+    settings: &Settings,
+) -> Option<CellAction> {
+    let title = project
+        .notes
+        .get(usize::from(cell.note_index))
+        .map_or_else(String::new, |note| note.name.clone());
+
+    let mut action = None;
+
+    egui::Window::new(title)
+        .id(egui::Id::new("note_window"))
+        .resizable(true)
+        .collapsible(false)
+        .default_size([420.0, 520.0])
+        .min_size([280.0, 200.0])
+        .show(ctx, |ui| {
+            action = draw_cell(ui, project, cell, settings);
+        });
+
+    action
+}
+
 fn draw_cell(
     ui: &mut egui::Ui,
     project: &mut Project,
@@ -1038,7 +1043,7 @@ fn draw_cell(
     let mut switch_to_editing = false;
     let mut action = None;
 
-    egui::Frame::group(ui.style()).show(ui, |ui| {
+    {
         ui.horizontal(|ui| {
             let (icon, label) = match cell.mode {
                 CellMode::Rendered => (crate::fonts::icon::PENCIL, "Edit"),
@@ -1102,7 +1107,7 @@ fn draw_cell(
         match cell.mode {
             CellMode::Rendered => {
                 let Some(note) = project.notes.get(usize::from(cell.note_index)) else {
-                    return;
+                    return action;
                 };
 
                 let scroll_output = egui::ScrollArea::vertical()
@@ -1147,7 +1152,7 @@ fn draw_cell(
 
             CellMode::Editing => {
                 let Some(note) = project.notes.get_mut(usize::from(cell.note_index)) else {
-                    return;
+                    return action;
                 };
 
                 let id = ui.make_persistent_id(("note_editor", cell.note_index));
@@ -1170,7 +1175,7 @@ fn draw_cell(
                 }
             }
         }
-    });
+    }
 
     if switch_to_editing {
         cell.mode = CellMode::Editing;
