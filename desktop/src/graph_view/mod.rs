@@ -52,7 +52,13 @@ pub fn draw(
     view: &mut View,
 ) -> Option<NoteId> {
     let edges = resolve_edges(project);
-    sim.sync(&project.notes, &edges);
+
+    let colors = Colors::new(appearance.palette, appearance.background);
+    let font_id = TextStyle::Body.resolve(ui.style());
+    let sizes = note_sizes(ui, project, &font_id, colors.text);
+    let radii: Vec<f32> = sizes.iter().map(|size| size.x.max(size.y) / 2.0).collect();
+
+    sim.sync(&project.notes, &edges, &radii);
 
     if project.notes.is_empty() {
         ui.centered_and_justified(|ui| ui.label("No notes yet."));
@@ -70,10 +76,7 @@ pub fn draw(
         .collect();
     let centroid = average(&positions);
 
-    let colors = Colors::new(appearance.palette, appearance.background);
-    let font_id = TextStyle::Body.resolve(ui.style());
-    let mut rects = note_rects(ui, project, &positions, &font_id, colors.text);
-    declutter(&mut rects);
+    let rects = note_rects(&positions, &sizes);
 
     let (response, painter) = ui.allocate_painter(ui.available_size(), Sense::click_and_drag());
     let canvas_rect = response.rect;
@@ -186,31 +189,36 @@ struct Style {
     zoom: f32,
 }
 
-/// World-space bounding rectangles for each note's label, centered on `positions`. Overlaps are
-/// possible at this point — [`declutter`] resolves them afterwards. The manuscript note (which
-/// isn't drawn — see `draw_nodes`) gets a zero-sized rect instead of a real one, so `declutter`
-/// never pushes a real node aside to make room for a node nothing ever draws.
-fn note_rects(
-    ui: &Ui,
-    project: &Project,
-    positions: &[Pos2],
-    font_id: &FontId,
-    text_color: Color32,
-) -> Vec<Rect> {
+/// World-space label sizes for each note this frame (galley size plus fixed padding), in
+/// `project.notes` order — independent of position, so it can be computed before the physics step
+/// that produces one, and used both to derive each note's physics collision radius (see
+/// [`draw`]) and, later the same frame, its on-screen rect (see [`note_rects`]). The manuscript
+/// note (which isn't drawn — see `draw_nodes`) gets [`Vec2::ZERO`], which excludes it from
+/// collision the same way [`Simulation`] already excludes it from every other force.
+fn note_sizes(ui: &Ui, project: &Project, font_id: &FontId, text_color: Color32) -> Vec<Vec2> {
     project
         .notes
         .iter()
-        .zip(positions)
-        .map(|(note, &center)| {
+        .map(|note| {
             if note.is_manuscript {
-                return Rect::from_center_size(center, Vec2::ZERO);
+                return Vec2::ZERO;
             }
 
             let galley =
                 ui.painter()
                     .layout_no_wrap(note.name.clone(), font_id.clone(), text_color);
-            Rect::from_center_size(center, galley.size() + Vec2::new(24.0, 16.0))
+            galley.size() + Vec2::new(24.0, 16.0)
         })
+        .collect()
+}
+
+/// Each note's world-space label rectangle this frame, centered on its physics position — see
+/// [`note_sizes`] for `sizes`.
+fn note_rects(positions: &[Pos2], sizes: &[Vec2]) -> Vec<Rect> {
+    positions
+        .iter()
+        .zip(sizes)
+        .map(|(&center, &size)| Rect::from_center_size(center, size))
         .collect()
 }
 
@@ -348,8 +356,8 @@ fn draw_edges(
 /// Draws every note as a rounded rectangle with its name centered inside, highlighted per
 /// `highlight`. Each node can also be dragged, which overrides its position directly in `sim`
 /// (see [`Simulation::drag_to`]) rather than waiting for physics to catch up. `node_positions`
-/// pairs each note's on-screen rect this frame with its raw (pre-declutter) world-space
-/// position — drawing uses the former, dragging updates relative to the latter. `node_responses`
+/// pairs each note's on-screen rect this frame with its world-space position — drawing uses the
+/// former, dragging updates relative to the latter. `node_responses`
 /// (`project.notes` order, from [`interact_nodes`]) is reused as-is rather than interacting with
 /// the same rects a second time. Returns the index of a note clicked this frame, if any.
 fn draw_nodes(
@@ -456,58 +464,4 @@ fn average(points: &[Pos2]) -> Pos2 {
 fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
     let lerp = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
     Color32::from_rgb(lerp(a.r(), b.r()), lerp(a.g(), b.g()), lerp(a.b(), b.b()))
-}
-
-/// Pushes apart any node rectangles the simulation left overlapping. `Simulation::step` only
-/// reasons about points, not each note's actual label size, so long note names in a dense cluster
-/// can still end up overlapping; this guarantees every label stays readable regardless. Purely
-/// cosmetic and recomputed fresh every frame — it doesn't feed back into the simulation. Skips any
-/// zero-area rect (the manuscript note's, from `note_rects` — nothing is ever drawn there), so a
-/// node nothing draws never pushes a real one aside.
-fn declutter(rects: &mut [Rect]) {
-    const GAP: f32 = 12.0;
-    const ITERATIONS: usize = 300;
-
-    for _ in 0..ITERATIONS {
-        let mut moved = false;
-
-        for i in 0..rects.len() {
-            for j in (i + 1)..rects.len() {
-                if rects[i].area() <= 0.0 || rects[j].area() <= 0.0 {
-                    continue;
-                }
-
-                let overlap = rects[i]
-                    .expand(GAP / 2.0)
-                    .intersect(rects[j].expand(GAP / 2.0));
-
-                if overlap.width() <= 0.0 || overlap.height() <= 0.0 {
-                    continue;
-                }
-
-                moved = true;
-
-                let delta = rects[i].center() - rects[j].center();
-                let push = if overlap.width() < overlap.height() {
-                    Vec2::new(overlap.width() / 2.0 * delta.x.signum(), 0.0)
-                } else {
-                    Vec2::new(0.0, overlap.height() / 2.0 * delta.y.signum())
-                };
-                // Centers can coincide exactly (signum gives 0); nudge deterministically instead
-                // of leaving the pair stuck on top of each other.
-                let push = if push == Vec2::ZERO {
-                    Vec2::new(overlap.width().min(overlap.height()) / 2.0, 0.0)
-                } else {
-                    push
-                };
-
-                rects[i] = rects[i].translate(push);
-                rects[j] = rects[j].translate(-push);
-            }
-        }
-
-        if !moved {
-            break;
-        }
-    }
 }

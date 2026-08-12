@@ -1,8 +1,16 @@
+use super::collision::resolve_overlaps;
 use super::{ConnectionId, Edge};
 use crate::math::{Pos2, Vec2};
 use crate::project::NoteId;
 
 const TAU: f32 = std::f32::consts::TAU;
+
+/// A generous one-shot budget for [`resolve_overlaps`] to fully untangle whatever the
+/// crossing-minimized cluster placement below produced, however overlapped — this only runs when
+/// [`super::Simulation::sync`] detects a structural change (a note or edge added, removed, or
+/// renamed), not every frame, so it can afford to be far more thorough than the tight per-frame
+/// budget `Simulation::step` uses for the same correction.
+const OVERLAP_ITERATIONS: usize = 300;
 
 /// Lays out every note for a fresh graph: each connected component (see [`connected_components`]
 /// — two notes belong to the same one if a link goes either way between them, matching how the
@@ -13,8 +21,11 @@ const TAU: f32 = std::f32::consts::TAU;
 /// on an outer circle around everything else. Not guaranteed to find a crossing-free order for
 /// any one cluster — one doesn't always exist — just a reasonable starting point for the
 /// real-time simulation to refine. Fully deterministic: the same notes and links always produce
-/// the same layout.
-pub(super) fn initial_layout(node_count: usize, edges: &[Edge]) -> Vec<Pos2> {
+/// the same layout. `radii[i]` is `NoteId(i)`'s physics collision radius (see
+/// [`super::Simulation`]'s per-node radius) — after the arrangement above (which doesn't reason
+/// about per-note size at all), every returned position is corrected via [`resolve_overlaps`] so
+/// that no two circles of these radii overlap.
+pub(super) fn initial_layout(node_count: usize, edges: &[Edge], radii: &[f32]) -> Vec<Pos2> {
     if node_count == 0 {
         return Vec::new();
     }
@@ -41,30 +52,30 @@ pub(super) fn initial_layout(node_count: usize, edges: &[Edge]) -> Vec<Pos2> {
             component_radius(node_count),
             &mut positions,
         );
-        return positions;
+    } else {
+        let cluster_radii: Vec<f32> = clustered
+            .iter()
+            .map(|component| component_radius(component.len()))
+            .collect();
+        let centers_radius = meta_radius(&cluster_radii);
+
+        for (index, component) in clustered.iter().enumerate() {
+            let angle = index as f32 / clustered.len() as f32 * TAU;
+            let center = Pos2::ZERO + centers_radius * Vec2::new(angle.cos(), angle.sin());
+            place_component(component, edges, center, &mut positions);
+        }
+
+        if !isolated.is_empty() {
+            let isolated_nodes: Vec<NoteId> = isolated.into_iter().flatten().collect();
+            let max_cluster_radius = cluster_radii.into_iter().fold(0.0f32, f32::max);
+            let outer_radius =
+                centers_radius + max_cluster_radius + component_radius(isolated_nodes.len());
+
+            place_ring(&isolated_nodes, Pos2::ZERO, outer_radius, &mut positions);
+        }
     }
 
-    let cluster_radii: Vec<f32> = clustered
-        .iter()
-        .map(|component| component_radius(component.len()))
-        .collect();
-    let centers_radius = meta_radius(&cluster_radii);
-
-    for (index, component) in clustered.iter().enumerate() {
-        let angle = index as f32 / clustered.len() as f32 * TAU;
-        let center = Pos2::ZERO + centers_radius * Vec2::new(angle.cos(), angle.sin());
-        place_component(component, edges, center, &mut positions);
-    }
-
-    if !isolated.is_empty() {
-        let isolated_nodes: Vec<NoteId> = isolated.into_iter().flatten().collect();
-        let max_cluster_radius = cluster_radii.into_iter().fold(0.0f32, f32::max);
-        let outer_radius =
-            centers_radius + max_cluster_radius + component_radius(isolated_nodes.len());
-
-        place_ring(&isolated_nodes, Pos2::ZERO, outer_radius, &mut positions);
-    }
-
+    resolve_overlaps(&mut positions, radii, OVERLAP_ITERATIONS);
     positions
 }
 
@@ -351,13 +362,17 @@ mod tests {
 
     #[test]
     fn initial_layout_places_a_lone_node_at_the_origin() {
-        assert_eq!(initial_layout(1, &[]), vec![Pos2::ZERO]);
+        assert_eq!(initial_layout(1, &[], &[0.0]), vec![Pos2::ZERO]);
     }
 
     #[test]
     fn initial_layout_is_deterministic() {
         let edges = vec![edge(0, 1), edge(1, 2), edge(3, 4)];
-        assert_eq!(initial_layout(6, &edges), initial_layout(6, &edges));
+        let radii = vec![0.0; 6];
+        assert_eq!(
+            initial_layout(6, &edges, &radii),
+            initial_layout(6, &edges, &radii)
+        );
     }
 
     #[test]
@@ -386,7 +401,7 @@ mod tests {
         // A pair of linked notes, plus a third with no links at all.
         let edges = vec![edge(0, 1)];
 
-        let positions = initial_layout(3, &edges);
+        let positions = initial_layout(3, &edges, &[0.0; 3]);
 
         let isolated_distance = positions[2].distance(Pos2::ZERO);
         let clustered_distance = positions[0]
@@ -406,7 +421,7 @@ mod tests {
         // Two separate pairs, each internally linked but with no link between the pairs.
         let edges = vec![edge(0, 1), edge(2, 3)];
 
-        let positions = initial_layout(4, &edges);
+        let positions = initial_layout(4, &edges, &[0.0; 4]);
 
         let midpoint = |a: Pos2, b: Pos2| Pos2::new((a.x + b.x) / 2.0, (a.y + b.y) / 2.0);
         let first_cluster_center = midpoint(positions[0], positions[1]);
@@ -420,6 +435,29 @@ mod tests {
             "clusters at {first_cluster_center:?} and {second_cluster_center:?} (distance \
              {center_distance}) should be at least {combined_radii} apart to not overlap"
         );
+    }
+
+    #[test]
+    fn initial_layout_never_places_two_notes_closer_than_the_sum_of_their_radii() {
+        // Deliberately huge, uniform radii relative to the crossing-minimization geometry's own
+        // spacing, so the naive cluster/ring placement above would definitely overlap without the
+        // closing `resolve_overlaps` pass.
+        let edges = vec![edge(0, 1), edge(1, 2), edge(3, 4)];
+        let node_count = 6;
+        let radii = vec![500.0; node_count];
+
+        let positions = initial_layout(node_count, &edges, &radii);
+
+        for i in 0..node_count {
+            for j in (i + 1)..node_count {
+                let distance = positions[i].distance(positions[j]);
+                let min_dist = radii[i] + radii[j];
+                assert!(
+                    distance >= min_dist - 0.01,
+                    "notes {i} and {j} are {distance}px apart but their radii sum to {min_dist}"
+                );
+            }
+        }
     }
 
     #[test]

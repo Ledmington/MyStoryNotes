@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use super::collision::resolve_overlaps;
 use super::layout::initial_layout;
 use super::{Edge, resolve_edges};
 use crate::math::{Pos2, Vec2};
@@ -9,6 +10,13 @@ use crate::settings::SimulationSettings;
 const MIN_DIST: f32 = 1.0;
 const MAX_FORCE: f32 = 20_000.0;
 const MAX_DT: f32 = 1.0 / 20.0;
+
+/// How many [`resolve_overlaps`] relaxation passes [`Simulation::step`] runs per frame. Unlike
+/// `initial_layout`'s one-shot 300, this runs continuously at up to 60fps, so it doesn't need to
+/// fully converge in a single call — any overlap left over gets another pass, and another 1/60s of
+/// budget, next frame. Kept far below `initial_layout`'s budget to keep the per-frame cost
+/// predictable regardless of how many notes are on screen.
+const OVERLAP_RESOLUTION_ITERATIONS: usize = 20;
 
 /// Below this squared speed a node is considered settled.
 const REST_VELOCITY_SQ: f32 = 4.0;
@@ -21,10 +29,14 @@ const REST_VELOCITY_SQ: f32 = 4.0;
 /// actually being done evolving.
 const RESTING_STEPS_REQUIRED: u32 = 60;
 
-/// A node's physics state: where it is and how fast it's moving.
+/// A node's physics state: where it is, how fast it's moving, and how big it is.
 struct NodeState {
     pos: Pos2,
     vel: Vec2,
+    /// This note's physics collision radius (half its label's larger dimension) — see
+    /// [`Simulation::sync`]'s `radii` parameter. Refreshed on every `sync` call, used only by the
+    /// hard non-overlap correction in [`Simulation::step`], never to compute any force.
+    radius: f32,
 }
 
 /// Persistent per-note physics state for the real-time graph view. Positions and velocities
@@ -58,7 +70,12 @@ impl Simulation {
     /// by note name rather than [`NoteId`] (as with `Self::nodes`' keys), so renaming a note
     /// also counts as a change, same as adding or removing one — a rename doesn't move that
     /// note's [`NoteId`], but it does change every edge naming it.
-    pub fn sync(&mut self, notes: &[Note], edges: &[Edge]) {
+    ///
+    /// `radii` (`notes`-indexed) is every note's current physics collision radius. Refreshed for
+    /// every note on every call, independent of whether a relayout happened above: a note's label
+    /// size (and so its radius) can change without the note or edge set itself changing, e.g. a
+    /// font-size setting.
+    pub fn sync(&mut self, notes: &[Note], edges: &[Edge], radii: &[f32]) {
         let current_edges: HashSet<(String, String)> = edges
             .iter()
             .map(|edge| {
@@ -77,13 +94,16 @@ impl Simulation {
         if notes_changed || current_edges != self.known_edges {
             self.nodes = notes
                 .iter()
-                .zip(initial_layout(notes.len(), edges))
+                .zip(initial_layout(notes.len(), edges, radii))
                 .map(|(note, pos)| {
                     (
                         note.name.clone(),
                         NodeState {
                             pos,
                             vel: Vec2::ZERO,
+                            // Overwritten unconditionally by the loop below, on this and every
+                            // future call.
+                            radius: 0.0,
                         },
                     )
                 })
@@ -92,6 +112,12 @@ impl Simulation {
         }
 
         self.known_edges = current_edges;
+
+        for (note, &radius) in notes.iter().zip(radii) {
+            if let Some(state) = self.nodes.get_mut(&note.name) {
+                state.radius = radius;
+            }
+        }
     }
 
     /// Advances the simulation by `dt` seconds under the force model set out in `lj_force`
@@ -167,12 +193,54 @@ impl Simulation {
         }
 
         let damping = (-settings.damping * dt).exp();
-        let mut moving = false;
 
         for (i, note) in notes.iter().enumerate() {
             let state = self.nodes.get_mut(&note.name).expect("synced above");
             state.vel = (state.vel + forces[i] * dt) * damping;
             state.pos += state.vel * dt;
+        }
+
+        // Hard non-overlap guarantee: LJ repulsion alone is not a floor (see `lj_force`'s doc
+        // comment) — a strong enough pull (a linked-note attraction, or centering) can still drive
+        // two nodes closer than the sum of their label radii. This positional correction, run
+        // every frame right after integration, is what actually enforces "circles never overlap."
+        let mut corrected_positions: Vec<Pos2> = notes
+            .iter()
+            .map(|note| self.nodes[&note.name].pos)
+            .collect();
+        let radii: Vec<f32> = notes
+            .iter()
+            .map(|note| {
+                // The manuscript note is excluded from every other force (see the loop above) and
+                // isn't drawn at all — it must not collide either, regardless of whatever radius
+                // was last synced in for it.
+                if note.is_manuscript {
+                    0.0
+                } else {
+                    self.nodes[&note.name].radius
+                }
+            })
+            .collect();
+        let overlaps_resolved = resolve_overlaps(
+            &mut corrected_positions,
+            &radii,
+            OVERLAP_RESOLUTION_ITERATIONS,
+        );
+
+        let mut moving = overlaps_resolved;
+
+        for (i, note) in notes.iter().enumerate() {
+            let state = self.nodes.get_mut(&note.name).expect("synced above");
+            let corrected = corrected_positions[i];
+
+            if state.pos != corrected {
+                // Without this, a force that keeps driving two nodes past their combined radius
+                // (e.g. a strong link whose equilibrium distance is smaller than their radii sum)
+                // would have the correction and the force fight every single frame forever, and
+                // the graph would never be considered settled (see `RESTING_STEPS_REQUIRED`).
+                state.vel = Vec2::ZERO;
+            }
+            state.pos = corrected;
 
             if state.vel.length_sq() > REST_VELOCITY_SQ {
                 moving = true;
@@ -239,8 +307,13 @@ fn lj_force(delta: Vec2, r_eq: f32, epsilon: f32) -> Vec2 {
 /// frontend's graph view relies on can be exercised in tests without a live UI.
 pub fn settle(project: &Project, settings: &SimulationSettings) -> Vec<Pos2> {
     let edges = resolve_edges(project);
+    // `settle` has no font/galley access (it's core-only, with no UI-toolkit dependency), so it
+    // can't measure a note's rendered label size — it deliberately opts out of the radius-aware
+    // non-overlap guarantee by passing zero radii, exercising the same point-particle physics it
+    // always has.
+    let radii = vec![0.0; project.notes.len()];
     let mut sim = Simulation::new();
-    sim.sync(&project.notes, &edges);
+    sim.sync(&project.notes, &edges, &radii);
 
     for _ in 0..7200 {
         if !sim.step(&project.notes, &edges, 1.0 / 60.0, settings) {
@@ -274,6 +347,12 @@ mod tests {
         }
     }
 
+    /// A zero radius for every note, so `resolve_overlaps` is a no-op — for tests that aren't
+    /// about the radius-aware non-overlap guarantee.
+    fn no_radii(notes: &[Note]) -> Vec<f32> {
+        vec![0.0; notes.len()]
+    }
+
     #[test]
     fn sync_relayouts_from_scratch_whenever_the_note_set_changes() {
         // Regression test for a design change: `sync` used to preserve existing notes' positions
@@ -284,24 +363,24 @@ mod tests {
         // crossing-minimized placement rather than a plain nudge.
         let notes_ab = vec![note("A"), note("B")];
         let mut sim = Simulation::new();
-        sim.sync(&notes_ab, &[]);
+        sim.sync(&notes_ab, &[], &no_radii(&notes_ab));
 
         let notes_abc = vec![note("A"), note("B"), note("C")];
         let edges_abc: Vec<Edge> = vec![];
-        sim.sync(&notes_abc, &edges_abc);
+        sim.sync(&notes_abc, &edges_abc, &no_radii(&notes_abc));
 
         assert!(sim.nodes.contains_key("C"));
-        let expected = initial_layout(notes_abc.len(), &edges_abc);
+        let expected = initial_layout(notes_abc.len(), &edges_abc, &no_radii(&notes_abc));
         for (note, expected_pos) in notes_abc.iter().zip(&expected) {
             assert_eq!(sim.nodes[&note.name].pos, *expected_pos);
         }
 
         let notes_ac = vec![note("A"), note("C")];
         let edges_ac: Vec<Edge> = vec![];
-        sim.sync(&notes_ac, &edges_ac);
+        sim.sync(&notes_ac, &edges_ac, &no_radii(&notes_ac));
 
         assert!(!sim.nodes.contains_key("B"));
-        let expected = initial_layout(notes_ac.len(), &edges_ac);
+        let expected = initial_layout(notes_ac.len(), &edges_ac, &no_radii(&notes_ac));
         for (note, expected_pos) in notes_ac.iter().zip(&expected) {
             assert_eq!(sim.nodes[&note.name].pos, *expected_pos);
         }
@@ -316,12 +395,12 @@ mod tests {
         let notes = vec![note("A"), note("B"), note("C")];
 
         let mut sim = Simulation::new();
-        sim.sync(&notes, &[]);
+        sim.sync(&notes, &[], &no_radii(&notes));
 
         let edges = vec![edge(0, 1)];
-        sim.sync(&notes, &edges);
+        sim.sync(&notes, &edges, &no_radii(&notes));
 
-        let expected = initial_layout(notes.len(), &edges);
+        let expected = initial_layout(notes.len(), &edges, &no_radii(&notes));
         for (note, expected_pos) in notes.iter().zip(&expected) {
             assert_eq!(sim.nodes[&note.name].pos, *expected_pos);
         }
@@ -333,7 +412,7 @@ mod tests {
         let edges = vec![edge(0, 1)];
 
         let mut sim = Simulation::new();
-        sim.sync(&notes, &edges);
+        sim.sync(&notes, &edges, &no_radii(&notes));
 
         let settings = SimulationSettings::default();
         for _ in 0..60 {
@@ -343,7 +422,7 @@ mod tests {
 
         // Same notes, same edges: sync should be a no-op rather than resetting the
         // physics-moved position back to `initial_layout`'s starting point.
-        sim.sync(&notes, &edges);
+        sim.sync(&notes, &edges, &no_radii(&notes));
 
         assert_eq!(sim.nodes["A"].pos, pos_after_settling);
     }
@@ -354,7 +433,7 @@ mod tests {
         let edges = vec![edge(0, 1)];
 
         let mut sim = Simulation::new();
-        sim.sync(&notes, &edges);
+        sim.sync(&notes, &edges, &no_radii(&notes));
 
         let settings = SimulationSettings::default();
         for _ in 0..30 {
@@ -375,7 +454,7 @@ mod tests {
     #[test]
     fn drag_to_is_a_no_op_for_a_name_not_in_the_simulation() {
         let mut sim = Simulation::new();
-        sim.sync(&[note("A")], &[]);
+        sim.sync(&[note("A")], &[], &[0.0]);
 
         // Shouldn't panic, and shouldn't insert a phantom node under the unknown name.
         sim.drag_to("nonexistent", Pos2::new(1.0, 2.0));
@@ -485,7 +564,7 @@ mod tests {
         let edges = vec![edge(0, 1)];
 
         let mut sim = Simulation::new();
-        sim.sync(&notes, &edges);
+        sim.sync(&notes, &edges, &no_radii(&notes));
         let positions = assert_converges(&mut sim, &notes, &edges);
 
         let separation = (positions[0] - positions[1]).length();
@@ -501,13 +580,13 @@ mod tests {
 
         let mut connected_sim = Simulation::new();
         let connected_edges = vec![edge(0, 1)];
-        connected_sim.sync(&notes, &connected_edges);
+        connected_sim.sync(&notes, &connected_edges, &no_radii(&notes));
         let connected_positions = assert_converges(&mut connected_sim, &notes, &connected_edges);
         let connected_separation = (connected_positions[0] - connected_positions[1]).length();
 
         let mut unconnected_sim = Simulation::new();
         let unconnected_edges: Vec<Edge> = vec![];
-        unconnected_sim.sync(&notes, &unconnected_edges);
+        unconnected_sim.sync(&notes, &unconnected_edges, &no_radii(&notes));
         let unconnected_positions =
             assert_converges(&mut unconnected_sim, &notes, &unconnected_edges);
         let unconnected_separation = (unconnected_positions[0] - unconnected_positions[1]).length();
@@ -529,14 +608,18 @@ mod tests {
 
         let notes_alone = vec![note("A")];
         let mut sim_alone = Simulation::new();
-        sim_alone.sync(&notes_alone, &[]);
+        sim_alone.sync(&notes_alone, &[], &no_radii(&notes_alone));
         sim_alone.nodes.get_mut("A").unwrap().pos = Pos2::new(100.0, 0.0);
 
         let mut manuscript = note("Manuscript");
         manuscript.is_manuscript = true;
         let notes_with_manuscript = vec![note("A"), manuscript];
         let mut sim_with_manuscript = Simulation::new();
-        sim_with_manuscript.sync(&notes_with_manuscript, &[]);
+        sim_with_manuscript.sync(
+            &notes_with_manuscript,
+            &[],
+            &no_radii(&notes_with_manuscript),
+        );
         sim_with_manuscript.nodes.get_mut("A").unwrap().pos = Pos2::new(100.0, 0.0);
         sim_with_manuscript.nodes.get_mut("Manuscript").unwrap().pos = Pos2::new(150.0, 0.0);
 
@@ -556,6 +639,87 @@ mod tests {
     }
 
     #[test]
+    fn step_never_leaves_two_linked_notes_closer_than_the_sum_of_their_radii() {
+        // strong_distance defaults to 100.0 — radii summing to 160 means LJ's own equilibrium
+        // point would overlap the circles, so only the hard correction (not LJ repulsion) can be
+        // responsible for keeping them apart here.
+        let notes = vec![note("A"), note("B")];
+        let edges = vec![edge(0, 1)];
+        let radii = [80.0, 80.0];
+
+        let mut sim = Simulation::new();
+        sim.sync(&notes, &edges, &radii);
+
+        let settings = SimulationSettings::default();
+        for _ in 0..600 {
+            sim.step(&notes, &edges, 1.0 / 60.0, &settings);
+            let distance = sim.nodes["A"].pos.distance(sim.nodes["B"].pos);
+            assert!(
+                distance >= 160.0 - 0.01,
+                "circles overlapped mid-simulation: {distance}px apart, radii sum to 160px"
+            );
+        }
+    }
+
+    #[test]
+    fn step_immediately_separates_two_notes_placed_on_top_of_each_other() {
+        let notes = vec![note("A"), note("B")];
+        let radii = [50.0, 30.0];
+
+        let mut sim = Simulation::new();
+        sim.sync(&notes, &[], &radii);
+        sim.drag_to("A", Pos2::ZERO);
+        sim.drag_to("B", Pos2::ZERO);
+
+        let settings = SimulationSettings::default();
+        sim.step(&notes, &[], 1.0 / 60.0, &settings);
+
+        let distance = sim.nodes["A"].pos.distance(sim.nodes["B"].pos);
+        assert!(
+            distance >= 80.0 - 0.01,
+            "two coincident notes should be pushed fully apart within a single step: \
+             {distance}px apart, expected >= 80px"
+        );
+    }
+
+    #[test]
+    fn overlap_resolution_ignores_the_manuscript_note() {
+        // Same differential technique as `a_manuscript_note_does_not_affect_other_notes_physics`,
+        // but targeting the new collision pass specifically: a huge, nearby manuscript circle
+        // must not push a real note aside, proving exclusion is enforced by `Simulation` itself
+        // (via `is_manuscript`) rather than merely by desktop happening to pass a zero radius for
+        // it.
+        let settings = SimulationSettings::default();
+
+        let notes_alone = vec![note("A")];
+        let mut sim_alone = Simulation::new();
+        sim_alone.sync(&notes_alone, &[], &[80.0]);
+        sim_alone.nodes.get_mut("A").unwrap().pos = Pos2::new(100.0, 0.0);
+
+        let mut manuscript = note("Manuscript");
+        manuscript.is_manuscript = true;
+        let notes_with_manuscript = vec![note("A"), manuscript];
+        let mut sim_with_manuscript = Simulation::new();
+        sim_with_manuscript.sync(&notes_with_manuscript, &[], &[80.0, 500.0]);
+        sim_with_manuscript.nodes.get_mut("A").unwrap().pos = Pos2::new(100.0, 0.0);
+        sim_with_manuscript.nodes.get_mut("Manuscript").unwrap().pos = Pos2::new(110.0, 0.0);
+
+        for _ in 0..120 {
+            sim_alone.step(&notes_alone, &[], 1.0 / 60.0, &settings);
+            sim_with_manuscript.step(&notes_with_manuscript, &[], 1.0 / 60.0, &settings);
+        }
+
+        let pos_alone = sim_alone.nodes["A"].pos;
+        let pos_with_manuscript = sim_with_manuscript.nodes["A"].pos;
+
+        assert!(
+            (pos_alone - pos_with_manuscript).length() < 0.01,
+            "a huge, nearby manuscript circle should not push another note aside: \
+             {pos_alone:?} (alone) vs {pos_with_manuscript:?} (with manuscript)"
+        );
+    }
+
+    #[test]
     fn a_cycle_converges_with_no_crossings_and_connected_pairs_closer_on_average() {
         // A 6-node ring: every node is connected to exactly its two neighbors in the cycle, and
         // unconnected to the other three. A ring can always be drawn with no crossing edges, so
@@ -565,7 +729,7 @@ mod tests {
         let edges: Vec<Edge> = (0..6).map(|i| edge(i, (i + 1) % 6)).collect();
 
         let mut sim = Simulation::new();
-        sim.sync(&notes, &edges);
+        sim.sync(&notes, &edges, &no_radii(&notes));
         let positions = assert_converges(&mut sim, &notes, &edges);
 
         assert_eq!(
@@ -615,7 +779,7 @@ mod tests {
         let edges: Vec<Edge> = (1..6).map(|i| edge(0, i)).collect();
 
         let mut sim = Simulation::new();
-        sim.sync(&notes, &edges);
+        sim.sync(&notes, &edges, &no_radii(&notes));
         let positions = assert_converges(&mut sim, &notes, &edges);
 
         let hub = positions[0];
@@ -666,7 +830,7 @@ mod tests {
         let edges = resolve_edges(&project);
 
         let mut sim = Simulation::new();
-        sim.sync(&project.notes, &edges);
+        sim.sync(&project.notes, &edges, &no_radii(&project.notes));
         let settings = SimulationSettings::default();
 
         for _ in 0..1800 {

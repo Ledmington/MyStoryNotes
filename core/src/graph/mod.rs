@@ -1,3 +1,4 @@
+mod collision;
 mod layout;
 mod simulation;
 

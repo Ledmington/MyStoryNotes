@@ -44,6 +44,12 @@ impl AddAssign<Vec2> for Pos2 {
     }
 }
 
+impl SubAssign<Vec2> for Pos2 {
+    fn sub_assign(&mut self, rhs: Vec2) {
+        *self = Self::new(self.x - rhs.x, self.y - rhs.y);
+    }
+}
+
 impl Sub for Pos2 {
     type Output = Vec2;
 
