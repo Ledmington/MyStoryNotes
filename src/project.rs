@@ -344,9 +344,9 @@ impl Project {
     }
 
     /// The color of `note`'s assigned category (see [`Note::category`]), if it has one and that
-    /// category still exists — used to color its node in the graph view, in place of the
-    /// default node color. The color of a node never affects the color its connections are
-    /// drawn in.
+    /// category still exists — used to color its node's border in the graph view, in place of
+    /// the default border color; a node's fill and its connections' colors are never affected by
+    /// its category.
     pub fn category_color(&self, note: &Note) -> Option<[u8; 3]> {
         let name = note.category.as_deref()?;
         self.categories

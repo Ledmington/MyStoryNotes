@@ -570,20 +570,27 @@ fn draw_nodes(
         };
 
         let highlighted = highlight.is_node(index);
-        let border = if highlighted {
-            style.colors.accent
-        } else {
-            style.colors.edge
-        };
-        let fill = project
+        let category_color = project
             .category_color(&project.notes[usize::from(index)])
-            .map_or(style.colors.node_fill, settings::rgb);
+            .map(settings::rgb);
+
+        // Highlighting (hover/open/selected) always wins over a category color, the same as it
+        // already wins over the plain default border — both are just states a node's border can
+        // be in, category color included. A category never touches the fill, only the border, so
+        // it can never be mistaken for (or bleed into) a connection's own color.
+        let (border, width) = if highlighted {
+            (style.colors.accent, 2.0)
+        } else if let Some(color) = category_color {
+            (color, 2.0)
+        } else {
+            (style.colors.edge, 1.0)
+        };
 
         painter.rect(
             screen_rect,
             4.0 * style.zoom,
-            fill,
-            Stroke::new(if highlighted { 2.0 } else { 1.0 } * style.zoom, border),
+            style.colors.node_fill,
+            Stroke::new(width * style.zoom, border),
             StrokeKind::Outside,
         );
 
