@@ -182,7 +182,7 @@ impl Default for SimulationSettings {
     fn default() -> Self {
         Self {
             weak_distance: 200.0,
-            weak_strength: 600.0,
+            weak_strength: 250.0,
             strong_distance: 100.0,
             strong_strength: 6_000.0,
             damping: 11.0,
