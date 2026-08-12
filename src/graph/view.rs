@@ -117,10 +117,18 @@ pub fn draw(
         })
         .collect();
 
+    // Registered before computing `highlight` (so hover state is known in time to highlight
+    // edges too, which are drawn before nodes) and reused as-is when nodes are drawn below,
+    // rather than interacting with the same rects twice.
+    let node_responses = interact_nodes(ui, project, &screen_rects);
+    let hovered_node_directly = node_responses
+        .iter()
+        .position(|response| response.as_ref().is_some_and(egui::Response::hovered))
+        .map(NoteId::from);
+
     let segments = edge_segments(&edges, &rects, canvas_rect, view);
     let hovered_edge = find_hovered_edge(&response, &segments);
-    let hovered_note =
-        find_hovered_node(&response, project, &screen_rects).or(note_highlight.hovered_note);
+    let hovered_note = hovered_node_directly.or(note_highlight.hovered_note);
     let highlight = Highlight {
         open_note: note_highlight.open_note,
         hovered_note,
@@ -130,7 +138,20 @@ pub fn draw(
 
     draw_edges(&painter, &segments, &highlight, &style);
 
-    let clicked = draw_nodes(ui, &painter, project, &screen_rects, &highlight, &style);
+    let node_positions: Vec<(Rect, Pos2)> = screen_rects
+        .iter()
+        .copied()
+        .zip(positions.iter().copied())
+        .collect();
+    let clicked = draw_nodes(
+        &painter,
+        project,
+        &node_positions,
+        &node_responses,
+        &highlight,
+        &style,
+        sim,
+    );
 
     draw_view_controls(ui, canvas_rect, view, centroid);
 
@@ -279,21 +300,41 @@ fn edge_segments(edges: &[Edge], rects: &[Rect], canvas_rect: Rect, view: &View)
         .collect()
 }
 
-/// The note whose on-screen rect contains the mouse this frame, if any. Skips the manuscript
-/// note the same way [`draw_nodes`] does — it isn't drawn, so it should never be hoverable
-/// either.
-fn find_hovered_node(
-    response: &egui::Response,
+/// Registers each non-manuscript note's on-screen rect as an interactive (click-and-drag) widget
+/// and returns its `Response`, in `project.notes` order (`None` for the manuscript note's slot,
+/// kept so indices still line up — it isn't drawn, so it should never be interactive either).
+///
+/// Called before drawing anything so a node's own hover state is known in time to highlight
+/// edges too (drawn before nodes) — deliberately *not* derived from the canvas-wide response's
+/// `hover_pos`, the way it used to be: once a node senses drag as well as click, egui's hit-test
+/// gives it exclusive hover ownership over whatever's behind it (the canvas) while the pointer is
+/// over it, the same way a button on top of a `ScrollArea` does, so the canvas response's own
+/// `hovered()` (and so `hover_pos()`) is reliably false there — see the "The only interactive
+/// widgets we mark as hovered are the ones in `hits.click` and `hits.drag`!" comment in egui's
+/// `interaction.rs`.
+fn interact_nodes(
+    ui: &mut Ui,
     project: &Project,
     screen_rects: &[Rect],
-) -> Option<NoteId> {
-    let pos = response.hover_pos()?;
-
+) -> Vec<Option<egui::Response>> {
     screen_rects
         .iter()
         .enumerate()
-        .find(|(index, rect)| !project.notes[*index].is_manuscript && rect.contains(pos))
-        .map(|(index, _)| NoteId::from(index))
+        .map(|(index, &screen_rect)| {
+            if project.notes[index].is_manuscript {
+                return None;
+            }
+
+            Some(
+                ui.interact(
+                    screen_rect,
+                    Id::new(("graph-node", index)),
+                    Sense::click_and_drag(),
+                )
+                .on_hover_cursor(egui::CursorIcon::PointingHand),
+            )
+        })
+        .collect()
 }
 
 /// Screen pixels within which the mouse counts as hovering over an edge.
@@ -333,27 +374,33 @@ fn draw_edges(
 }
 
 /// Draws every note as a rounded rectangle with its name centered inside, highlighted per
-/// `highlight`. Returns the index of a note clicked this frame, if any.
+/// `highlight`. Each node can also be dragged, which overrides its position directly in `sim`
+/// (see [`Simulation::drag_to`]) rather than waiting for physics to catch up. `node_positions`
+/// pairs each note's on-screen rect this frame with its raw (pre-declutter) world-space
+/// position — drawing uses the former, dragging updates relative to the latter. `node_responses`
+/// (`project.notes` order, from [`interact_nodes`]) is reused as-is rather than interacting with
+/// the same rects a second time. Returns the index of a note clicked this frame, if any.
 fn draw_nodes(
-    ui: &mut Ui,
     painter: &egui::Painter,
     project: &Project,
-    screen_rects: &[Rect],
+    node_positions: &[(Rect, Pos2)],
+    node_responses: &[Option<egui::Response>],
     highlight: &Highlight,
     style: &Style,
+    sim: &mut Simulation,
 ) -> Option<NoteId> {
     let mut clicked = None;
 
-    for (index, &screen_rect) in screen_rects.iter().enumerate() {
+    for (index, &(screen_rect, position)) in node_positions.iter().enumerate() {
         let index = NoteId::from(index);
 
         // The manuscript note isn't part of the graph at all (see `resolve_edges`) — it would
         // obviously end up linked from just about every other note. Its slot in `screen_rects`
-        // is kept (zero-sized, from `note_rects`) purely so indices still line up with
-        // `project.notes`; skip drawing and hit-testing it here.
-        if project.notes[usize::from(index)].is_manuscript {
+        // (and `node_responses`) is kept (zero-sized, `None`) purely so indices still line up
+        // with `project.notes`; skip drawing and hit-testing it here.
+        let Some(response) = &node_responses[usize::from(index)] else {
             continue;
-        }
+        };
 
         let highlighted = highlight.is_node(index);
         let border = if highlighted {
@@ -383,16 +430,16 @@ fn draw_nodes(
             style.colors.text,
         );
 
-        let response = ui
-            .interact(
-                screen_rect,
-                Id::new(("graph-node", usize::from(index))),
-                Sense::click(),
-            )
-            .on_hover_cursor(egui::CursorIcon::PointingHand);
-
         if response.clicked() {
             clicked = Some(index);
+        }
+
+        if response.dragged() {
+            let world_delta = response.drag_delta() / style.zoom;
+            sim.drag_to(
+                &project.notes[usize::from(index)].name,
+                position + world_delta,
+            );
         }
     }
 

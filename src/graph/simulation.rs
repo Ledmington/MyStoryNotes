@@ -197,6 +197,17 @@ impl Simulation {
             .map(|note| self.nodes[&note.name].pos)
             .collect()
     }
+
+    /// Directly overrides one note's position and zeroes its velocity, for the graph view's
+    /// click-and-drag interaction — call every frame the note is being dragged, after `step` has
+    /// already run that frame, so the drag always wins over that frame's physics nudge and the
+    /// note carries no leftover momentum once released.
+    pub(super) fn drag_to(&mut self, name: &str, pos: Pos2) {
+        if let Some(state) = self.nodes.get_mut(name) {
+            state.pos = pos;
+            state.vel = Vec2::ZERO;
+        }
+    }
 }
 
 /// A Lennard-Jones-style force: repulsive when the two nodes (separated by `delta`, "self" minus
@@ -335,6 +346,41 @@ mod tests {
         sim.sync(&notes, &edges);
 
         assert_eq!(sim.nodes["A"].pos, pos_after_settling);
+    }
+
+    #[test]
+    fn drag_to_overrides_position_and_clears_velocity() {
+        let notes = vec![note("A"), note("B")];
+        let edges = vec![edge(0, 1)];
+
+        let mut sim = Simulation::new();
+        sim.sync(&notes, &edges);
+
+        let settings = SimulationSettings::default();
+        for _ in 0..30 {
+            sim.step(&notes, &edges, 1.0 / 60.0, &settings);
+        }
+        assert!(
+            sim.nodes["A"].vel != Vec2::ZERO,
+            "the note should still be settling, i.e. have some velocity, this early on"
+        );
+
+        let dragged_to = Pos2::new(500.0, -500.0);
+        sim.drag_to("A", dragged_to);
+
+        assert_eq!(sim.nodes["A"].pos, dragged_to);
+        assert_eq!(sim.nodes["A"].vel, Vec2::ZERO);
+    }
+
+    #[test]
+    fn drag_to_is_a_no_op_for_a_name_not_in_the_simulation() {
+        let mut sim = Simulation::new();
+        sim.sync(&[note("A")], &[]);
+
+        // Shouldn't panic, and shouldn't insert a phantom node under the unknown name.
+        sim.drag_to("nonexistent", Pos2::new(1.0, 2.0));
+
+        assert!(!sim.nodes.contains_key("nonexistent"));
     }
 
     #[test]
