@@ -15,7 +15,8 @@ const MAX_HEIGHT_FRACTION: f32 = 0.5;
 /// (see [`crate::project::Category`]), which color notes in the graph view. Per-project rather
 /// than an app-wide setting (unlike [`crate::settings_panel`]) — categories are read from and
 /// written straight to `project.categories`, saved along with everything else the next time the
-/// project itself is saved. `show` is cleared when the window's close button is clicked.
+/// project itself is saved. `show` is cleared when the window's native title-bar close button is
+/// clicked, or Escape is pressed while it's open.
 pub fn draw(ctx: &egui::Context, project: &mut Project, show: &mut bool) {
     if !*show {
         return;
@@ -24,23 +25,24 @@ pub fn draw(ctx: &egui::Context, project: &mut Project, show: &mut bool) {
     let mut rename: Option<(String, String)> = None;
     let mut delete: Option<String> = None;
     let mut add: Option<String> = None;
+    let mut escape_pressed = false;
+
+    // A separate flag for `Window::open` rather than `show` itself: `open` needs its own `&mut
+    // bool` borrow for the whole `show` call below, which would conflict with also mutating
+    // `*show` for the Escape check inside the content closure.
+    let mut still_open = true;
 
     let max_height = ctx.input(|input| input.viewport_rect().height()) * MAX_HEIGHT_FRACTION;
 
     egui::Window::new("Note Categories")
+        .open(&mut still_open)
         .collapsible(false)
         .resizable(true)
         .default_width(340.0)
         .min_size([260.0, 160.0])
         .max_height(max_height)
         .show(ctx, |ui| {
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let label = crate::fonts::icon_label(ui, crate::fonts::icon::TIMES, "Close");
-                if ui.small_button(label).clicked() {
-                    *show = false;
-                }
-            });
-            ui.separator();
+            escape_pressed = ui.input(|input| input.key_pressed(egui::Key::Escape));
 
             if project.categories.is_empty() {
                 ui.label("No categories yet.");
@@ -67,6 +69,8 @@ pub fn draw(ctx: &egui::Context, project: &mut Project, show: &mut bool) {
             ui.separator();
             add = add_category_row(ui);
         });
+
+    *show = still_open && !escape_pressed;
 
     if let Some((old_name, new_name)) = rename
         && let Err(error) = project.rename_category(&old_name, &new_name)

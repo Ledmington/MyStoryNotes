@@ -679,12 +679,14 @@ impl eframe::App for App {
         let search_pressed = self.project.is_some()
             && ui.input_mut(|input| input.consume_shortcut(&SEARCH_SHORTCUT));
         // Only consumed when nothing else would react to Escape first — otherwise it would eat
-        // the keypress a dialog or the search window needs for its own close-on-Escape handling.
+        // the keypress a dialog, the search window, or the categories window needs for its own
+        // close-on-Escape handling.
         let close_panel_pressed = self.open_cell.is_some()
             && self.rename_dialog.is_none()
             && !self.new_note_dialog
             && self.delete_confirm.is_none()
             && !self.search.is_open()
+            && !self.show_categories
             && ui.input_mut(|input| input.consume_shortcut(&CLOSE_PANEL_SHORTCUT));
         // Guarded the same way as `close_panel_pressed`, plus requiring the cell isn't mid-edit —
         // otherwise this would steal Backspace from the note's own multiline `TextEdit` before it
@@ -697,6 +699,7 @@ impl eframe::App for App {
             && !self.new_note_dialog
             && self.delete_confirm.is_none()
             && !self.search.is_open()
+            && !self.show_categories
             && ui.input_mut(|input| {
                 DELETE_NOTE_SHORTCUTS
                     .iter()
