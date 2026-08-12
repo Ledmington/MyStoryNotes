@@ -41,8 +41,13 @@ impl Log for Logger {
     fn enabled(&self, metadata: &Metadata) -> bool {
         // Debug-level verbosity is only interesting for our own code; third-party crates
         // (winit, wgpu, ...) also log through this same facade and would otherwise flood
-        // stderr with per-frame windowing/rendering chatter.
-        let level_cap = if metadata.target().starts_with(env!("CARGO_PKG_NAME")) {
+        // stderr with per-frame windowing/rendering chatter. Checked against a literal prefix
+        // rather than `env!("CARGO_PKG_NAME")`: that macro expands to *this* crate's own name
+        // (`my_story_notes_core`) wherever this file happens to be compiled, but log targets
+        // from the GUI crate (`my_story_notes::...`) need to count as "our own code" too — which
+        // a plain `"my_story_notes"` prefix catches for both, since `my_story_notes_core` also
+        // starts with it by construction.
+        let level_cap = if metadata.target().starts_with("my_story_notes") {
             max_level()
         } else {
             LevelFilter::Warn

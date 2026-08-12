@@ -1,0 +1,13 @@
+[package]
+name = "my_story_notes_core"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+rust-version = "1.95.0"
+
+[dependencies]
+log = { version = "0.4", features = ["std"] }
+pulldown-cmark = "0.13"
+serde = { version = "1", features = ["derive"] }
+time = { version = "0.3", features = ["formatting", "macros"] }
+toml = "1"

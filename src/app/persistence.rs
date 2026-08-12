@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use eframe::egui;
 
-use crate::project::Project;
+use my_story_notes_core::project::Project;
 
 use super::App;
 

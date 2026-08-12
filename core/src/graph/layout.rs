@@ -1,6 +1,5 @@
-use egui::{Pos2, Vec2};
-
 use super::{ConnectionId, Edge};
+use crate::math::{Pos2, Vec2};
 use crate::project::NoteId;
 
 const TAU: f32 = std::f32::consts::TAU;

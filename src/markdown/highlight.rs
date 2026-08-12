@@ -2,8 +2,10 @@ use egui::text::{LayoutJob, TextFormat};
 use egui::{Color32, Stroke, Ui};
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 
+use my_story_notes_core::settings::EditPalette;
+
 use crate::fonts;
-use crate::settings::{self, EditPalette};
+use crate::style;
 
 /// Resolved colors and sizes for [`highlight`]: the configurable [`EditPalette`] plus the app's
 /// ambient text color (for plain text, which has no dedicated palette entry) and the configured
@@ -23,11 +25,11 @@ impl Palette {
     fn from_ui(ui: &Ui, edit: &EditPalette, size: f32) -> Self {
         Self {
             default: ui.visuals().text_color(),
-            bold: settings::rgb(edit.bold),
-            punctuation: settings::rgb(edit.punctuation),
-            heading: settings::rgb(edit.heading),
-            code: settings::rgb(edit.code),
-            link: settings::rgb(edit.link),
+            bold: style::rgb(edit.bold),
+            punctuation: style::rgb(edit.punctuation),
+            heading: style::rgb(edit.heading),
+            code: style::rgb(edit.code),
+            link: style::rgb(edit.link),
             body_size: size,
             code_size: size,
         }

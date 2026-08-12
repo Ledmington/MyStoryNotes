@@ -1,9 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
-use egui::{Pos2, Vec2};
-
 use super::layout::initial_layout;
 use super::{Edge, resolve_edges};
+use crate::math::{Pos2, Vec2};
 use crate::project::{Note, NoteId, Project};
 use crate::settings::SimulationSettings;
 
@@ -52,14 +51,14 @@ impl Simulation {
         Self::default()
     }
 
-    /// Recomputes every note's position from scratch via [`initial_layout`] whenever the set of
+    /// Recomputes every note's position from scratch via `initial_layout` whenever the set of
     /// notes, or the set of links between them, has changed since the last call (including the
     /// very first) — since minimizing edge crossings depends on the whole edge set, not just
     /// whatever changed. Leaves positions and velocities untouched otherwise. Edges are compared
-    /// by note name rather than [`NoteId`] (as with [`Self::nodes`]' keys), so renaming a note
+    /// by note name rather than [`NoteId`] (as with `Self::nodes`' keys), so renaming a note
     /// also counts as a change, same as adding or removing one — a rename doesn't move that
     /// note's [`NoteId`], but it does change every edge naming it.
-    pub(super) fn sync(&mut self, notes: &[Note], edges: &[Edge]) {
+    pub fn sync(&mut self, notes: &[Note], edges: &[Edge]) {
         let current_edges: HashSet<(String, String)> = edges
             .iter()
             .map(|edge| {
@@ -95,11 +94,11 @@ impl Simulation {
         self.known_edges = current_edges;
     }
 
-    /// Advances the simulation by `dt` seconds under the force model set out in [`lj_force`]
+    /// Advances the simulation by `dt` seconds under the force model set out in `lj_force`
     /// below, tuned by `settings`, and returns whether the graph is still worth another repaint —
-    /// true as long as any node is moving fast enough, plus [`RESTING_STEPS_REQUIRED`] more steps
+    /// true as long as any node is moving fast enough, plus `RESTING_STEPS_REQUIRED` more steps
     /// once every node has dipped below that, to debounce a momentary lull from true rest.
-    pub(super) fn step(
+    pub fn step(
         &mut self,
         notes: &[Note],
         edges: &[Edge],
@@ -191,7 +190,7 @@ impl Simulation {
 
     /// Current positions in `notes` order. Every name in `notes` must already be present, i.e.
     /// this must be called after `Simulation::sync`.
-    pub(super) fn positions(&self, notes: &[Note]) -> Vec<Pos2> {
+    pub fn positions(&self, notes: &[Note]) -> Vec<Pos2> {
         notes
             .iter()
             .map(|note| self.nodes[&note.name].pos)
@@ -202,7 +201,7 @@ impl Simulation {
     /// click-and-drag interaction — call every frame the note is being dragged, after `step` has
     /// already run that frame, so the drag always wins over that frame's physics nudge and the
     /// note carries no leftover momentum once released.
-    pub(super) fn drag_to(&mut self, name: &str, pos: Pos2) {
+    pub fn drag_to(&mut self, name: &str, pos: Pos2) {
         if let Some(state) = self.nodes.get_mut(name) {
             state.pos = pos;
             state.vel = Vec2::ZERO;
@@ -236,8 +235,8 @@ fn lj_force(delta: Vec2, r_eq: f32, epsilon: f32) -> Vec2 {
 
 /// Runs the force-directed layout for every note in `project`, from a fresh [`Simulation`], until
 /// it settles (see `Simulation::step`) or a generous step budget elapses, and returns each
-/// note's final world-space position in `project.notes` order. Exposed so the physics [`super::draw`]
-/// relies on can be exercised in tests without a live `egui::Ui`.
+/// note's final world-space position in `project.notes` order. Exposed so the physics a GUI
+/// frontend's graph view relies on can be exercised in tests without a live UI.
 pub fn settle(project: &Project, settings: &SimulationSettings) -> Vec<Pos2> {
     let edges = resolve_edges(project);
     let mut sim = Simulation::new();
@@ -656,9 +655,13 @@ mod tests {
         // — back when a since-removed angular-balance force (meant to fan a hub's outgoing links
         // apart) had no distance falloff, magnitude clamp, or per-neighbor normalization. Kept as
         // a general stability check now that force is gone entirely.
-        let project = crate::project::Project::open(std::path::PathBuf::from(
-            "tests/fixtures/example_project.mystorynotes",
-        ))
+        // The fixture lives under the workspace root's `tests/fixtures/`, not this crate's own
+        // (`core/`) — `CARGO_MANIFEST_DIR` is this crate's directory, so the path has to step
+        // back up out of it.
+        let project = crate::project::Project::open(std::path::PathBuf::from(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../tests/fixtures/example_project.mystorynotes"
+        )))
         .unwrap();
         let edges = resolve_edges(&project);
 

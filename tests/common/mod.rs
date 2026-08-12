@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use my_story_notes::project::Project;
+use my_story_notes_core::project::Project;
 
 /// Loads a fixture file by name from `tests/fixtures/`, e.g. `fixture("empty_project.mystorynotes")`.
 pub fn fixture(name: &str) -> Project {

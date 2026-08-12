@@ -3,17 +3,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use egui::{Color32, Visuals};
 use serde::{Deserialize, Serialize};
 
-/// Converts a stored `[r, g, b]` triple into the color type egui actually paints with.
-pub fn rgb(color: [u8; 3]) -> Color32 {
-    Color32::from_rgb(color[0], color[1], color[2])
-}
-
 /// Colors for the app's chrome (panels, buttons, selection, hyperlinks), applied on top of
-/// egui's light or dark theme (matching this palette's own brightness — see
-/// [`UiPalette::to_visuals`]) every frame.
+/// the GUI toolkit's light or dark theme (matching this palette's own brightness — see
+/// [`is_light`]) every frame.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct UiPalette {
@@ -36,28 +30,9 @@ impl Default for UiPalette {
     }
 }
 
-impl UiPalette {
-    pub fn to_visuals(&self) -> Visuals {
-        // Buttons and other widget chrome come from egui's own light/dark preset (`self` only
-        // overrides window/panel/text/selection/hyperlink below) — picking the preset that
-        // matches this palette's own brightness keeps that chrome legible instead of always
-        // rendering dark-gray buttons, even under a light custom theme.
-        let mut visuals = if is_light(self.panel_background) {
-            Visuals::light()
-        } else {
-            Visuals::dark()
-        };
-        visuals.window_fill = rgb(self.window_background);
-        visuals.panel_fill = rgb(self.panel_background);
-        visuals.override_text_color = Some(rgb(self.text));
-        visuals.selection.bg_fill = rgb(self.accent);
-        visuals.hyperlink_color = rgb(self.hyperlink);
-        visuals
-    }
-}
-
-/// Whether `color` reads as light overall, by the standard luma formula.
-fn is_light(color: [u8; 3]) -> bool {
+/// Whether `color` reads as light overall, by the standard luma formula — used by a GUI frontend
+/// to decide whether a [`UiPalette`] wants light- or dark-mode widget chrome.
+pub fn is_light(color: [u8; 3]) -> bool {
     let luma =
         0.299 * f32::from(color[0]) + 0.587 * f32::from(color[1]) + 0.114 * f32::from(color[2]);
     luma > 128.0
@@ -79,28 +54,6 @@ impl Default for FontSizes {
             ui: 13.0,
             render: 14.0,
             edit: 13.0,
-        }
-    }
-}
-
-impl FontSizes {
-    /// Resizes `style`'s text styles around [`Self::ui`]: headings and small text (e.g. the "x"
-    /// on notification popups) scale with it rather than staying fixed.
-    pub fn apply_to_style(&self, style: &mut egui::Style) {
-        use egui::TextStyle;
-
-        let sizes = [
-            (TextStyle::Small, self.ui * 0.75),
-            (TextStyle::Body, self.ui),
-            (TextStyle::Button, self.ui),
-            (TextStyle::Heading, self.ui * 1.4),
-            (TextStyle::Monospace, self.ui),
-        ];
-
-        for (text_style, size) in sizes {
-            if let Some(font_id) = style.text_styles.get_mut(&text_style) {
-                font_id.size = size;
-            }
         }
     }
 }
@@ -507,38 +460,6 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Regression test: `to_visuals` used to build every palette on top of `Visuals::dark()`
-    /// unconditionally, so a light custom theme's buttons and other widget chrome still rendered
-    /// with dark-gray fills instead of matching the palette.
-    #[test]
-    fn to_visuals_picks_dark_mode_or_light_mode_widgets_to_match_the_palette() {
-        let dark = UiPalette {
-            panel_background: [27, 27, 27],
-            ..UiPalette::default()
-        };
-        assert!(dark.to_visuals().dark_mode);
-
-        let light = UiPalette {
-            panel_background: [240, 236, 224],
-            ..UiPalette::default()
-        };
-        assert!(!light.to_visuals().dark_mode);
-    }
-
-    #[test]
-    fn every_built_in_theme_s_widgets_match_its_own_panel_brightness() {
-        for theme in themes() {
-            let visuals = theme.ui.to_visuals();
-            assert_eq!(
-                visuals.dark_mode,
-                !is_light(theme.ui.panel_background),
-                "theme '{}' has a panel background that doesn't match its widget chrome's \
-                 light/dark mode",
-                theme.name
-            );
-        }
-    }
 
     #[test]
     fn record_recent_project_moves_an_existing_entry_to_the_front_instead_of_duplicating_it() {

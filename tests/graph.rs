@@ -1,8 +1,8 @@
 mod common;
 
-use egui::{Pos2, Vec2};
-use my_story_notes::graph;
-use my_story_notes::settings::SimulationSettings;
+use my_story_notes_core::graph;
+use my_story_notes_core::math::{Pos2, Vec2};
+use my_story_notes_core::settings::SimulationSettings;
 
 #[test]
 fn two_disconnected_cliques_settle_into_separate_tight_clusters() {

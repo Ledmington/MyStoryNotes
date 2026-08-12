@@ -1,7 +1,7 @@
 use eframe::egui;
 
-use crate::graph;
-use crate::project::{NoteId, Project};
+use my_story_notes_core::graph;
+use my_story_notes_core::project::{NoteId, Project};
 
 /// How the note list sidebar orders its notes. Clicking a sort button cycles its two variants
 /// (ascending, then descending) before landing back on [`Self::Unsorted`] — see

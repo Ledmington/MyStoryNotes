@@ -1,6 +1,6 @@
 use eframe::egui;
 
-use crate::project::{Category, Project};
+use my_story_notes_core::project::{Category, Project};
 
 /// A freshly picked default color for a newly added category, distinct enough from the graph
 /// view's own default (unassigned) node color to be visibly a "real" category right away.
@@ -12,11 +12,11 @@ const NEW_CATEGORY_COLOR: [u8; 3] = [120, 120, 200];
 const MAX_HEIGHT_FRACTION: f32 = 0.5;
 
 /// Draws the "Note Categories" window: add, recolor, rename and delete the project's categories
-/// (see [`crate::project::Category`]), which color notes in the graph view. Per-project rather
-/// than an app-wide setting (unlike [`crate::settings_panel`]) — categories are read from and
-/// written straight to `project.categories`, saved along with everything else the next time the
-/// project itself is saved. `show` is cleared when the window's native title-bar close button is
-/// clicked, or Escape is pressed while it's open.
+/// (see [`my_story_notes_core::project::Category`]), which color notes in the graph view.
+/// Per-project rather than an app-wide setting (unlike [`crate::settings_panel`]) — categories are
+/// read from and written straight to `project.categories`, saved along with everything else the
+/// next time the project itself is saved. `show` is cleared when the window's native title-bar
+/// close button is clicked, or Escape is pressed while it's open.
 pub fn draw(ctx: &egui::Context, project: &mut Project, show: &mut bool) {
     if !*show {
         return;

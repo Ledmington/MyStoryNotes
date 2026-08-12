@@ -1,6 +1,6 @@
 mod common;
 
-use my_story_notes::markdown;
+use my_story_notes_core::markdown;
 
 #[test]
 fn example_project_has_no_empty_notes() {

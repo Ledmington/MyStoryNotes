@@ -1,6 +1,6 @@
 use egui::{Color32, Pos2, Rect, Stroke, Vec2};
 
-use crate::settings::GraphPattern;
+use my_story_notes_core::settings::GraphPattern;
 
 use super::camera::{View, to_screen, to_world};
 

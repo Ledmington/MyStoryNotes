@@ -8,14 +8,12 @@ use std::time::Instant;
 
 use eframe::egui;
 
-use crate::{
-    categories_panel, graph,
-    logging::Notifications,
-    project::{NoteId, Project},
-    search::{self, Search},
-    settings::Settings,
-    settings_panel,
-};
+use crate::{categories_panel, graph_view, search_panel, settings_panel, style};
+use my_story_notes_core::graph::Simulation;
+use my_story_notes_core::logging::Notifications;
+use my_story_notes_core::project::{NoteId, Project};
+use my_story_notes_core::search::Search;
+use my_story_notes_core::settings::Settings;
 
 use note_window::{CellAction, draw_note_window};
 use persistence::{SaveKind, SaveStatus};
@@ -84,13 +82,13 @@ pub struct App {
     show_categories: bool,
     search: Search,
     notifications: Notifications,
-    graph_sim: graph::Simulation,
-    graph_view: graph::View,
+    graph_sim: Simulation,
+    graph_view: graph_view::View,
 }
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        let notifications = crate::logging::init();
+        let notifications = my_story_notes_core::logging::init();
 
         crate::fonts::install(&cc.egui_ctx);
 
@@ -115,8 +113,8 @@ impl App {
             show_categories: false,
             search: Search::default(),
             notifications,
-            graph_sim: graph::Simulation::new(),
-            graph_view: graph::View::new(),
+            graph_sim: Simulation::new(),
+            graph_view: graph_view::View::new(),
         }
     }
 
@@ -164,13 +162,13 @@ impl eframe::App for App {
         self.process_pending_save();
         self.check_autosave(ui.ctx());
 
-        let visuals = self.settings.ui.to_visuals();
+        let visuals = style::to_visuals(&self.settings.ui);
         let font_size = self.settings.font_size.clone();
         let theme = ui.ctx().theme();
 
         ui.ctx().style_mut_of(theme, |style| {
             style.visuals = visuals;
-            font_size.apply_to_style(style);
+            style::apply_font_sizes(style, &font_size);
         });
 
         let new_project_pressed =
@@ -448,14 +446,14 @@ impl eframe::App for App {
 
             let open_note = self.open_cell.as_ref().map(|cell| cell.note_index);
 
-            if let Some(clicked) = graph::draw(
+            if let Some(clicked) = graph_view::draw(
                 ui,
                 project,
-                graph::NoteHighlight {
+                graph_view::NoteHighlight {
                     open_note,
                     hovered_note,
                 },
-                graph::GraphAppearance {
+                graph_view::GraphAppearance {
                     palette: &self.settings.ui,
                     background: &self.settings.graph_background,
                 },
@@ -510,7 +508,7 @@ impl eframe::App for App {
         self.show_rename_dialog(ui.ctx());
         self.show_delete_confirm_dialog(ui.ctx());
 
-        if let Some(index) = search::draw(ui.ctx(), self.project.as_ref(), &mut self.search) {
+        if let Some(index) = search_panel::draw(ui.ctx(), self.project.as_ref(), &mut self.search) {
             self.open_cell = Some(Cell {
                 note_index: index,
                 mode: CellMode::Rendered,

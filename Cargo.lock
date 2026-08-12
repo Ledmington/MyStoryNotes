@@ -1771,12 +1771,21 @@ dependencies = [
  "eframe",
  "egui",
  "log",
+ "my_story_notes_core",
  "pulldown-cmark",
  "rfd",
+ "webbrowser",
+]
+
+[[package]]
+name = "my_story_notes_core"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "pulldown-cmark",
  "serde",
  "time",
  "toml",
- "webbrowser",
 ]
 
 [[package]]

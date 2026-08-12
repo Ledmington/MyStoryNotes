@@ -1,5 +1,7 @@
 use egui::{Pos2, Ui};
 
+use my_story_notes_core::math;
+
 const MIN_ZOOM: f32 = 0.1;
 const MAX_ZOOM: f32 = 4.0;
 
@@ -8,9 +10,9 @@ const ZOOM_WHEEL_SENSITIVITY: f32 = 0.0015;
 
 /// The graph view's camera: `center` is the world-space point shown at the middle of the canvas,
 /// `zoom` is the world-to-screen scale factor (screen pixels per world unit). Persists across
-/// frames like [`crate::graph::Simulation`] does, so panning and zooming don't reset on every
-/// draw; own one for as long as the graph view should remember its camera and pass the same
-/// instance every call to [`super::draw`].
+/// frames like [`my_story_notes_core::graph::Simulation`] does, so panning and zooming don't
+/// reset on every draw; own one for as long as the graph view should remember its camera and pass
+/// the same instance every call to [`super::draw`].
 pub struct View {
     pub(super) center: Pos2,
     pub(super) zoom: f32,
@@ -75,4 +77,15 @@ fn zoom_at(view: &mut View, anchor_screen: Pos2, screen_center: Pos2, factor: f3
 /// opposed to [`zoom_at`], which keeps a specific screen point fixed, for the scroll wheel).
 pub(super) fn zoom_by(view: &mut View, factor: f32) {
     view.zoom = (view.zoom * factor).clamp(MIN_ZOOM, MAX_ZOOM);
+}
+
+/// Converts a world-space point from the UI-agnostic core's own math type to egui's, at the
+/// boundary between [`my_story_notes_core::graph::Simulation`]'s positions and this drawing code.
+pub(super) fn from_core_pos(pos: math::Pos2) -> Pos2 {
+    Pos2::new(pos.x, pos.y)
+}
+
+/// The inverse of [`from_core_pos`].
+pub(super) fn to_core_pos(pos: Pos2) -> math::Pos2 {
+    math::Pos2::new(pos.x, pos.y)
 }

@@ -1,18 +1,16 @@
 mod layout;
 mod simulation;
-mod view;
 
 use crate::markdown;
 use crate::project::{NoteId, Project};
 
 pub use simulation::{Simulation, settle};
-pub use view::{GraphAppearance, NoteHighlight, View, draw};
 
 /// An edge's position in the resolved edge list, for tracking which one (if any) the mouse is
 /// hovering. A thin `usize` wrapper so it can't be confused with a [`NoteId`], even though both
 /// are array indices under the hood.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ConnectionId(usize);
+pub struct ConnectionId(usize);
 
 impl From<usize> for ConnectionId {
     fn from(index: usize) -> Self {
@@ -27,16 +25,16 @@ impl From<ConnectionId> for usize {
 }
 
 /// A markdown link from one note to another, resolved to indices into [`Project::notes`].
-struct Edge {
-    from: NoteId,
-    to: NoteId,
+pub struct Edge {
+    pub from: NoteId,
+    pub to: NoteId,
 }
 
 /// Resolves every note's markdown links into [`Edge`]s indexing into `project.notes`, excluding
 /// the manuscript note (see [`crate::project::Note::is_manuscript`]) on either end — it would
 /// otherwise dominate the graph, being linked from just about every other note. A link to or from
 /// it simply doesn't become an edge, the same as a link to a note that doesn't exist.
-fn resolve_edges(project: &Project) -> Vec<Edge> {
+pub fn resolve_edges(project: &Project) -> Vec<Edge> {
     project
         .notes
         .iter()

@@ -1,6 +1,6 @@
 use eframe::egui;
 
-use crate::settings::Settings;
+use my_story_notes_core::settings::Settings;
 
 /// Draws the Settings panel: theme picker, color/font-size rows for each of the three palettes,
 /// and the graph physics sliders, in a scroll area below a fixed header (so the panel stays
@@ -25,7 +25,7 @@ pub fn draw(ui: &mut egui::Ui, settings: &mut Settings, show_settings: &mut bool
     egui::ScrollArea::vertical().show(ui, |ui| {
         ui.label("Themes");
         ui.horizontal_wrapped(|ui| {
-            for theme in crate::settings::themes() {
+            for theme in my_story_notes_core::settings::themes() {
                 if ui.button(theme.name).clicked() {
                     log::info!("Applying '{}' theme", theme.name);
                     settings.apply_theme(&theme);
@@ -149,10 +149,13 @@ fn color_row(ui: &mut egui::Ui, label: &str, color: &mut [u8; 3]) -> bool {
     changed
 }
 
-/// A labeled dropdown row for picking a [`crate::settings::GraphPattern`]. Returns whether the
-/// selection changed this frame.
-fn pattern_row(ui: &mut egui::Ui, pattern: &mut crate::settings::GraphPattern) -> bool {
-    use crate::settings::GraphPattern;
+/// A labeled dropdown row for picking a [`my_story_notes_core::settings::GraphPattern`]. Returns
+/// whether the selection changed this frame.
+fn pattern_row(
+    ui: &mut egui::Ui,
+    pattern: &mut my_story_notes_core::settings::GraphPattern,
+) -> bool {
+    use my_story_notes_core::settings::GraphPattern;
 
     ui.horizontal(|ui| {
         ui.label("Pattern");
@@ -182,7 +185,7 @@ fn font_size_row(ui: &mut egui::Ui, label: &str, size: &mut f32) -> bool {
     .inner
 }
 
-/// A labeled slider row for a [`crate::settings::SimulationSettings`] field, with a tooltip
+/// A labeled slider row for a [`my_story_notes_core::settings::SimulationSettings`] field, with a tooltip
 /// explaining what it does. Returns whether the value changed this frame.
 fn simulation_param_row(
     ui: &mut egui::Ui,

@@ -5,13 +5,13 @@ mod controls;
 use eframe::egui;
 use egui::{Color32, FontId, Id, Pos2, Rect, Sense, Stroke, StrokeKind, TextStyle, Ui, Vec2};
 
-use super::simulation::Simulation;
-use super::{ConnectionId, Edge, resolve_edges};
-use crate::project::{NoteId, Project};
-use crate::settings::{self, GraphBackground, SimulationSettings, UiPalette};
+use my_story_notes_core::graph::{ConnectionId, Edge, Simulation, resolve_edges};
+use my_story_notes_core::project::{NoteId, Project};
+use my_story_notes_core::settings::{GraphBackground, SimulationSettings, UiPalette};
 
+use crate::style;
 use background::draw_background_pattern;
-use camera::{handle_camera_input, to_screen};
+use camera::{from_core_pos, handle_camera_input, to_core_pos, to_screen};
 use controls::draw_view_controls;
 
 pub use camera::View;
@@ -63,7 +63,11 @@ pub fn draw(
     if sim.step(&project.notes, &edges, dt, simulation_settings) {
         ui.ctx().request_repaint();
     }
-    let positions = sim.positions(&project.notes);
+    let positions: Vec<Pos2> = sim
+        .positions(&project.notes)
+        .into_iter()
+        .map(from_core_pos)
+        .collect();
     let centroid = average(&positions);
 
     let colors = Colors::new(appearance.palette, appearance.background);
@@ -151,22 +155,22 @@ struct Colors {
     node_fill: Color32,
     edge: Color32,
     accent: Color32,
-    /// For the optional background pattern (see [`crate::settings::GraphPattern`]) — faint
-    /// relative to `edge`, so the pattern reads as texture rather than competing with the graph
-    /// itself.
+    /// For the optional background pattern (see [`my_story_notes_core::settings::GraphPattern`])
+    /// — faint relative to `edge`, so the pattern reads as texture rather than competing with the
+    /// graph itself.
     pattern: Color32,
 }
 
 impl Colors {
     fn new(palette: &UiPalette, background: &GraphBackground) -> Self {
-        let text = settings::rgb(palette.text);
-        let panel_background = settings::rgb(palette.panel_background);
-        let canvas = settings::rgb(background.color);
+        let text = style::rgb(palette.text);
+        let panel_background = style::rgb(palette.panel_background);
+        let canvas = style::rgb(background.color);
         Self {
             node_fill: mix(panel_background, text, 0.12),
             edge: mix(panel_background, text, 0.4),
             pattern: mix(canvas, text, 0.12),
-            accent: settings::rgb(palette.accent),
+            accent: style::rgb(palette.accent),
             canvas,
             text,
         }
@@ -373,7 +377,7 @@ fn draw_nodes(
         let highlighted = highlight.is_node(index);
         let category_color = project
             .category_color(&project.notes[usize::from(index)])
-            .map(settings::rgb);
+            .map(style::rgb);
 
         // Highlighting (hover/open/selected) always wins over a category color, the same as it
         // already wins over the plain default border — both are just states a node's border can
@@ -416,7 +420,7 @@ fn draw_nodes(
             let world_delta = response.drag_delta() / style.zoom;
             sim.drag_to(
                 &project.notes[usize::from(index)].name,
-                position + world_delta,
+                to_core_pos(position + world_delta),
             );
         }
     }

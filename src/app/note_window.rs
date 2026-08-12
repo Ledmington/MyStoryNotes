@@ -1,10 +1,9 @@
 use eframe::egui;
 
-use crate::{
-    markdown, note_editor,
-    project::{NoteId, Project},
-    settings::Settings,
-};
+use my_story_notes_core::project::{NoteId, Project};
+use my_story_notes_core::settings::Settings;
+
+use crate::{markdown, note_editor};
 
 use super::{Cell, CellMode, DELETE_NOTE_SHORTCUTS};
 
@@ -113,7 +112,8 @@ fn draw_cell(
         });
 
         if let Some(note) = project.notes.get(usize::from(cell.note_index))
-            && markdown::title(&note.source).as_deref() != Some(note.name.as_str())
+            && my_story_notes_core::markdown::title(&note.source).as_deref()
+                != Some(note.name.as_str())
         {
             ui.label(
                 egui::RichText::new(format!("Saved as \"{}\"", note.name))
@@ -123,8 +123,8 @@ fn draw_cell(
         }
 
         // The manuscript note isn't drawn as a node in the graph view at all (see
-        // `crate::graph::resolve_edges`), so a category assigned to it would have nothing to
-        // color.
+        // `my_story_notes_core::graph::resolve_edges`), so a category assigned to it would have
+        // nothing to color.
         let is_manuscript = project
             .notes
             .get(usize::from(cell.note_index))

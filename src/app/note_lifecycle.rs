@@ -164,8 +164,9 @@ impl App {
     }
 
     /// Deletes the note in [`Self::delete_confirm`]. Other notes' links to it are left dangling
-    /// (see [`crate::project::Project::delete_note`]). If it was the open cell, closes the cell;
-    /// if some other note was open, keeps it open, adjusting for the index shift deletion causes.
+    /// (see [`my_story_notes_core::project::Project::delete_note`]). If it was the open cell,
+    /// closes the cell; if some other note was open, keeps it open, adjusting for the index shift
+    /// deletion causes.
     fn delete_note(&mut self) {
         let Some(project) = &mut self.project else {
             return;

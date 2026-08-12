@@ -20,8 +20,15 @@ Negotiables:
 - animations
 - pretty colors
 
+## Project structure
+This is a two-crate Cargo workspace:
+- `core/` (package `my_story_notes_core`) — every domain rule and its data: projects/notes/categories, settings data, markdown parsing, the graph's layout and physics, search, and logging. Has no `egui`/`eframe` dependency at all, not even for math — see `core/src/math.rs`'s minimal `Pos2`/`Vec2`, which the graph's layout and physics use instead of borrowing a GUI toolkit's own types. This is what makes the domain logic testable without any graphics and, if it's ever needed, reusable from a different frontend.
+- the root package (`my_story_notes`, `src/`) — the egui/eframe GUI: all drawing code, plus the handful of conversions from `core`'s plain data into egui's own types (`src/style.rs` for colors/fonts, and `src/graph_view/camera.rs` for `core::math::Pos2` <-> `egui::Pos2`).
+
+The root `Cargo.toml` is both the workspace manifest and the root package's manifest (`default-members = [".", "core"]`), so every command below already covers both crates without needing `--workspace` or `-p` flags.
+
 ## Minimum supported Rust version
-The MSRV is 1.95.0, tracked via `rust-version` in `Cargo.toml`. CI checks both the MSRV and the latest toolchain it's pinned to (currently 1.97.0). Re-check the MSRV with `cargo msrv find` after bumping dependencies or using newer language features, and update `Cargo.toml`, this file, `README.md`, and `.github/workflows/ci.yml` together if it changes.
+The MSRV is 1.95.0, tracked via `rust-version` in both `Cargo.toml` files (root and `core/`). CI checks both the MSRV and the latest toolchain it's pinned to (currently 1.97.0). Re-check the MSRV with `cargo msrv find` after bumping dependencies or using newer language features, and update both `Cargo.toml` files, this file, `README.md`, and `.github/workflows/ci.yml` together if it changes.
 
 ## Commands
 Format the code:
@@ -70,13 +77,13 @@ docker build -t my_story_notes -f etc/Dockerfile .
 ```
 
 ## Testing
-Unit tests live alongside the code they test, in `#[cfg(test)] mod tests` within each module, and may use private internals freely.
-Integration/end-to-end tests live under `tests/` and exercise the app only through its public API — this is why `src/lib.rs` exists (with `src/main.rs` as a thin binary wrapper around it): a `tests/` file is compiled as a separate crate and can't see anything the lib doesn't expose as `pub`.
-`tests/common/mod.rs` holds shared fixture-loading helpers; fixture project files live in `tests/fixtures/`, including `example_project.mystorynotes`, the user-facing sample referenced from the README.
+Unit tests live alongside the code they test, in `#[cfg(test)] mod tests` within each module (in either crate), and may use private internals freely.
+Integration/end-to-end tests live under the root `tests/` and exercise both crates only through their public API — this is why `src/lib.rs` exists (with `src/main.rs` as a thin binary wrapper around it): a `tests/` file is compiled as a separate crate and can't see anything a lib doesn't expose as `pub`. A `tests/*.rs` file may depend on `my_story_notes_core` directly (it's already a normal dependency of the root package) as well as `my_story_notes`.
+`tests/common/mod.rs` holds shared fixture-loading helpers; fixture project files live in `tests/fixtures/`, including `example_project.mystorynotes`, the user-facing sample referenced from the README. A `core/`-side unit test that needs a fixture reaches it via `concat!(env!("CARGO_MANIFEST_DIR"), "/../tests/fixtures/...")`, since fixtures aren't duplicated into `core/`.
 
 ## General philosophy and code style
 Don't overcomplicate things until there is a clear need.
-Prefer keeping everything in a single package until there is a clear need to split things into different libraries.
+Prefer keeping everything in a single package until there is a clear need to split things into different libraries — the `core`/GUI split above was one such clear need (faster iteration on domain logic without recompiling `eframe`, a compiler-enforced boundary, and the option of a non-egui frontend later); don't look for reasons to split further than that without another one just as concrete.
 Try to follow the rule of three: if a certain functionality is not needed in at least three different places, do not refactor it.
 A lot of small functions is preferable to few big ones.
 Many small files are preferable to a few big ones.
