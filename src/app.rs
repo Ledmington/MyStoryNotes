@@ -1028,7 +1028,9 @@ enum CellAction {
 /// view (which otherwise always occupies the whole central area — see [`eframe::App::ui`]),
 /// rather than splitting the graph into a side panel to make room for it. The window keeps a
 /// fixed [`egui::Id`] rather than one derived from its title, so resizing or moving it persists
-/// across switching to a different note (e.g. by clicking a link) instead of resetting.
+/// across switching to a different note (e.g. by clicking a link) instead of resetting. Its
+/// native title-bar close button reports [`CellAction::Close`], same as the in-cell "Close"
+/// button used to.
 fn draw_note_window(
     ctx: &egui::Context,
     project: &mut Project,
@@ -1041,9 +1043,14 @@ fn draw_note_window(
         .map_or_else(String::new, |note| note.name.clone());
 
     let mut action = None;
+    // Separate from the `CellAction::Close` the caller acts on: `Window::open` needs its own
+    // `&mut bool` borrow for the whole `show` call below, which would conflict with also setting
+    // `action` from inside the content closure.
+    let mut still_open = true;
 
     egui::Window::new(title)
         .id(egui::Id::new("note_window"))
+        .open(&mut still_open)
         .resizable(true)
         .collapsible(false)
         .default_size([420.0, 520.0])
@@ -1051,6 +1058,10 @@ fn draw_note_window(
         .show(ctx, |ui| {
             action = draw_cell(ui, project, cell, settings);
         });
+
+    if !still_open {
+        action = Some(CellAction::Close);
+    }
 
     action
 }
@@ -1104,15 +1115,6 @@ fn draw_cell(
                 .clicked()
             {
                 action = Some(CellAction::Delete);
-            }
-
-            let close_label = crate::fonts::icon_label(ui, crate::fonts::icon::TIMES, "Close");
-            if ui
-                .small_button(close_label)
-                .on_hover_text(ui.ctx().format_shortcut(&CLOSE_PANEL_SHORTCUT))
-                .clicked()
-            {
-                action = Some(CellAction::Close);
             }
         });
 
