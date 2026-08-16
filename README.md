@@ -115,6 +115,8 @@ An example project with sample notes is included at
 — open it from the app to see the format and the graph view in action. It
 doubles as a fixture for the integration tests (see Development below).
 
+![The example project open in MyStoryNotes, showing a note alongside the graph view](screenshot.png)
+
 ## Project file format
 
 A project is a single [TOML](https://toml.io) file: a list of notes, each
