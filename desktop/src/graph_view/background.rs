@@ -4,10 +4,23 @@ use my_story_notes_core::settings::GraphPattern;
 
 use super::camera::{View, to_screen, to_world};
 
-/// World-space spacing between a background pattern's lines or concentric turns. Fixed rather
-/// than user-configurable, so the "Graph background" setting stays a single, simple choice of
-/// pattern rather than growing a further set of tuning knobs.
+/// World-space spacing between a background pattern's lines, circles, wave rows, or dots. Fixed
+/// rather than user-configurable, so the "Graph background" setting stays a single, simple choice
+/// of pattern rather than growing a further set of tuning knobs.
 const PATTERN_SPACING: f32 = 120.0;
+
+/// On-screen radius of a dot in [`GraphPattern::SquareDots`] or [`GraphPattern::TriangularDots`],
+/// in pixels — fixed regardless of zoom, same as every pattern's 1px line width.
+const DOT_RADIUS: f32 = 1.5;
+
+/// The straight-line geometry a background pattern reduces to: either a set of line segments
+/// (every grid, [`GraphPattern::Rays`], and every curved pattern once tessellated into a
+/// polyline) or a set of points (the dot patterns) — [`draw_background_pattern`] paints each
+/// kind differently.
+enum PatternGeometry {
+    Lines(Vec<[Pos2; 2]>),
+    Dots(Vec<Pos2>),
+}
 
 /// Draws `pattern` (if not [`GraphPattern::None`]) behind everything else in the graph view, in
 /// `color`. Computed fresh every frame from the currently visible world-space area, so it always
@@ -29,37 +42,59 @@ pub(super) fn draw_background_pattern(
         to_world(canvas_rect, view, canvas_rect.max),
     );
 
-    for [a, b] in pattern_segments(pattern, visible, view.zoom) {
-        painter.line_segment(
-            [
-                to_screen(canvas_rect, view, a),
-                to_screen(canvas_rect, view, b),
-            ],
-            Stroke::new(1.0, color),
-        );
+    match pattern_geometry(pattern, visible, view.zoom) {
+        PatternGeometry::Lines(segments) => {
+            for [a, b] in segments {
+                painter.line_segment(
+                    [
+                        to_screen(canvas_rect, view, a),
+                        to_screen(canvas_rect, view, b),
+                    ],
+                    Stroke::new(1.0, color),
+                );
+            }
+        }
+        PatternGeometry::Dots(points) => {
+            for point in points {
+                painter.circle_filled(to_screen(canvas_rect, view, point), DOT_RADIUS, color);
+            }
+        }
     }
 }
 
-/// World-space line segments for `pattern`, covering `visible` (with enough margin that nothing
-/// is visibly clipped) — the pure geometry [`draw_background_pattern`] then projects to screen
-/// space and paints. `zoom` (screen pixels per world unit) only affects [`GraphPattern::Spiral`],
-/// whose curve is approximated by a polyline fine enough to look smooth at the current zoom; every
-/// other pattern is already made of dead-straight lines, which stay smooth at any zoom.
-fn pattern_segments(pattern: GraphPattern, visible: Rect, zoom: f32) -> Vec<[Pos2; 2]> {
+/// World-space geometry for `pattern`, covering `visible` (with enough margin that nothing is
+/// visibly clipped) — the pure geometry [`draw_background_pattern`] then projects to screen space
+/// and paints. `zoom` (screen pixels per world unit) only affects the patterns approximated by a
+/// polyline ([`GraphPattern::Spiral`], [`GraphPattern::ConcentricCircles`],
+/// [`GraphPattern::WaveLines`]), fine enough to look smooth at the current zoom; every other
+/// pattern is already made of dead-straight lines or fixed-size dots, which stay correct at any
+/// zoom.
+fn pattern_geometry(pattern: GraphPattern, visible: Rect, zoom: f32) -> PatternGeometry {
     use std::f32::consts::{FRAC_PI_3, PI};
 
     match pattern {
-        GraphPattern::None => Vec::new(),
-        GraphPattern::SquareGrid => [0.0, PI / 2.0]
-            .into_iter()
-            .flat_map(|angle| parallel_line_family(visible, angle, PATTERN_SPACING))
-            .collect(),
-        GraphPattern::TriangularGrid => [0.0, FRAC_PI_3, 2.0 * FRAC_PI_3]
-            .into_iter()
-            .flat_map(|angle| parallel_line_family(visible, angle, PATTERN_SPACING))
-            .collect(),
-        GraphPattern::Rays => ray_segments(visible),
-        GraphPattern::Spiral => spiral_segments(visible, zoom),
+        GraphPattern::None => PatternGeometry::Lines(Vec::new()),
+        GraphPattern::SquareGrid => PatternGeometry::Lines(
+            [0.0, PI / 2.0]
+                .into_iter()
+                .flat_map(|angle| parallel_line_family(visible, angle, PATTERN_SPACING))
+                .collect(),
+        ),
+        GraphPattern::TriangularGrid => PatternGeometry::Lines(
+            [0.0, FRAC_PI_3, 2.0 * FRAC_PI_3]
+                .into_iter()
+                .flat_map(|angle| parallel_line_family(visible, angle, PATTERN_SPACING))
+                .collect(),
+        ),
+        GraphPattern::HexagonalGrid => PatternGeometry::Lines(hex_grid_segments(visible)),
+        GraphPattern::Rays => PatternGeometry::Lines(ray_segments(visible)),
+        GraphPattern::Spiral => PatternGeometry::Lines(spiral_segments(visible, zoom)),
+        GraphPattern::ConcentricCircles => {
+            PatternGeometry::Lines(concentric_circle_segments(visible, zoom))
+        }
+        GraphPattern::WaveLines => PatternGeometry::Lines(wave_line_segments(visible, zoom)),
+        GraphPattern::SquareDots => PatternGeometry::Dots(square_dot_grid(visible)),
+        GraphPattern::TriangularDots => PatternGeometry::Dots(triangular_dot_grid(visible)),
     }
 }
 
@@ -97,9 +132,52 @@ fn parallel_line_family(visible: Rect, angle: f32, spacing: f32) -> Vec<[Pos2; 2
         .collect()
 }
 
-/// The farthest any corner of `visible` gets from the world origin — far enough that rays or a
-/// spiral centered on the origin always reach past every edge of `visible`, however the camera
-/// has panned or zoomed it relative to the origin.
+/// Center-to-corner size of each hexagon in [`GraphPattern::HexagonalGrid`], chosen so adjacent
+/// hexagon centers are [`PATTERN_SPACING`] apart horizontally — the same density as the two line
+/// grids.
+const HEX_SIZE: f32 = PATTERN_SPACING * 2.0 / 3.0;
+
+/// The 6 edges of a flat-top hexagon of `size` (center-to-corner distance) centered on `center`.
+fn hexagon_edges(center: Pos2, size: f32) -> [[Pos2; 2]; 6] {
+    let vertex = |i: usize| center + Vec2::angled(i as f32 * std::f32::consts::FRAC_PI_3) * size;
+    std::array::from_fn(|i| [vertex(i), vertex((i + 1) % 6)])
+}
+
+/// A honeycomb of flat-top [`HEX_SIZE`] hexagons (see [`hexagon_edges`]) tiling `visible`, laid
+/// out on the standard offset hex grid: columns [`HEX_SIZE`] * 1.5 apart, alternating columns
+/// staggered vertically by half a row. Shared edges between adjacent hexagons are emitted twice
+/// (once per hexagon), which overdraws slightly but keeps this — and [`hexagon_edges`] — simple.
+fn hex_grid_segments(visible: Rect) -> Vec<[Pos2; 2]> {
+    let horiz_spacing = 1.5 * HEX_SIZE;
+    let vert_spacing = 3f32.sqrt() * HEX_SIZE;
+    let margin = HEX_SIZE;
+
+    let min_col = ((visible.min.x - margin) / horiz_spacing).floor() as i32;
+    let max_col = ((visible.max.x + margin) / horiz_spacing).ceil() as i32;
+
+    (min_col..=max_col)
+        .flat_map(|col| {
+            let x = col as f32 * horiz_spacing;
+            let row_offset = if col.rem_euclid(2) == 1 {
+                vert_spacing / 2.0
+            } else {
+                0.0
+            };
+
+            let min_row = ((visible.min.y - margin - row_offset) / vert_spacing).floor() as i32;
+            let max_row = ((visible.max.y + margin - row_offset) / vert_spacing).ceil() as i32;
+
+            (min_row..=max_row).flat_map(move |row| {
+                let y = row as f32 * vert_spacing + row_offset;
+                hexagon_edges(Pos2::new(x, y), HEX_SIZE)
+            })
+        })
+        .collect()
+}
+
+/// The farthest any corner of `visible` gets from the world origin — far enough that rays, a
+/// spiral, or concentric circles centered on the origin always reach past every edge of
+/// `visible`, however the camera has panned or zoomed it relative to the origin.
 fn max_corner_distance_from_origin(visible: Rect) -> f32 {
     [
         visible.left_top(),
@@ -127,6 +205,12 @@ fn ray_segments(visible: Rect) -> Vec<[Pos2; 2]> {
         .collect()
 }
 
+/// Target on-screen length, in pixels, for one polyline segment of any pattern approximating a
+/// smooth curve ([`GraphPattern::Spiral`], [`GraphPattern::ConcentricCircles`],
+/// [`GraphPattern::WaveLines`]) — small enough that the curve still reads as smooth rather than
+/// faceted.
+const CURVE_TARGET_SEGMENT_PIXELS: f32 = 6.0;
+
 /// How many arms [`spiral_segments`] draws — evenly rotated around the origin, so 2 gives the
 /// classic "double spiral" look rather than a single arm.
 const SPIRAL_ARM_COUNT: usize = 2;
@@ -146,16 +230,8 @@ fn spiral_segments(visible: Rect, zoom: f32) -> Vec<[Pos2; 2]> {
         .collect()
 }
 
-/// Target on-screen length for each of [`spiral_arm_segments`]'s polyline segments, in pixels —
-/// small enough to read as a smooth curve. The angular step between consecutive points is chosen
-/// fresh every segment so its chord stays close to this length regardless of the spiral's local
-/// radius or the camera's current zoom, rather than a single fixed angular step: a fixed step
-/// makes the tightly-wound turns near the center look fine but the far-out, larger-radius turns
-/// visibly faceted, since the same angular step spans an ever-longer chord as the radius grows.
-const SPIRAL_TARGET_SEGMENT_PIXELS: f32 = 6.0;
-
 /// Upper bound on [`spiral_arm_segments`]'s adaptive angular step — without it, the step implied
-/// by [`SPIRAL_TARGET_SEGMENT_PIXELS`] would blow up near the origin (where the radius, and so the
+/// by [`CURVE_TARGET_SEGMENT_PIXELS`] would blow up near the origin (where the radius, and so the
 /// implied step, approaches infinity), leaving only a handful of segments to draw the spiral's
 /// tightest turns.
 const SPIRAL_MAX_STEP: f32 = 0.2;
@@ -169,10 +245,10 @@ const SPIRAL_MAX_SEGMENTS_PER_ARM: usize = 3_000;
 
 /// One arm of an Archimedean spiral (radius growing by [`PATTERN_SPACING`] every full turn),
 /// starting at the world origin and rotated by `phase` radians, approximated as a polyline out to
-/// `max_radius` — see [`SPIRAL_TARGET_SEGMENT_PIXELS`] for how finely.
+/// `max_radius` — see [`CURVE_TARGET_SEGMENT_PIXELS`] for how finely.
 fn spiral_arm_segments(max_radius: f32, phase: f32, zoom: f32) -> Vec<[Pos2; 2]> {
     let growth_per_radian = PATTERN_SPACING / std::f32::consts::TAU;
-    let target_chord = SPIRAL_TARGET_SEGMENT_PIXELS / zoom;
+    let target_chord = CURVE_TARGET_SEGMENT_PIXELS / zoom;
 
     let mut segments = Vec::new();
     let mut theta = 0.0f32;
@@ -199,6 +275,129 @@ fn spiral_arm_segments(max_radius: f32, phase: f32, zoom: f32) -> Vec<[Pos2; 2]>
     }
 
     segments
+}
+
+/// Floor on how many segments approximate one [`GraphPattern::ConcentricCircles`] ring — without
+/// it, a very small on-screen circle (a small radius, or a very zoomed-out view) could otherwise
+/// be approximated by only a handful of segments and read as a visible polygon rather than a
+/// circle.
+const CIRCLE_MIN_SEGMENTS: usize = 12;
+
+/// Concentric rings, [`PATTERN_SPACING`] apart, centered on the world origin, out to the farthest
+/// corner of `visible` — each ring a regular polygon fine enough (see
+/// [`CURVE_TARGET_SEGMENT_PIXELS`]) to read as a circle.
+fn concentric_circle_segments(visible: Rect, zoom: f32) -> Vec<[Pos2; 2]> {
+    let max_radius = max_corner_distance_from_origin(visible);
+    let ring_count = (max_radius / PATTERN_SPACING).floor() as u32;
+
+    (1..=ring_count)
+        .flat_map(|ring| circle_segments(ring as f32 * PATTERN_SPACING, zoom))
+        .collect()
+}
+
+/// A single ring of `radius`, centered on the world origin, approximated as a regular polygon —
+/// see [`CURVE_TARGET_SEGMENT_PIXELS`] and [`CIRCLE_MIN_SEGMENTS`] for how finely.
+fn circle_segments(radius: f32, zoom: f32) -> Vec<[Pos2; 2]> {
+    let circumference_pixels = std::f32::consts::TAU * radius * zoom;
+    let count = ((circumference_pixels / CURVE_TARGET_SEGMENT_PIXELS).round() as usize)
+        .max(CIRCLE_MIN_SEGMENTS);
+
+    (0..count)
+        .map(|i| {
+            let angle = |step: usize| step as f32 / count as f32 * std::f32::consts::TAU;
+            [
+                Pos2::ZERO + Vec2::angled(angle(i)) * radius,
+                Pos2::ZERO + Vec2::angled(angle(i + 1)) * radius,
+            ]
+        })
+        .collect()
+}
+
+/// Peak vertical displacement of [`GraphPattern::WaveLines`] from its row's baseline, world
+/// units. Modest relative to [`PATTERN_SPACING`] (the distance between rows, reused as the wave's
+/// wavelength too) so consecutive wave rows read as distinct, non-overlapping lines.
+const WAVE_AMPLITUDE: f32 = 24.0;
+
+/// Horizontal, sinusoidal lines [`PATTERN_SPACING`] apart, covering `visible` — each one a
+/// polyline sampled finely enough (see [`CURVE_TARGET_SEGMENT_PIXELS`]) to look smooth.
+fn wave_line_segments(visible: Rect, zoom: f32) -> Vec<[Pos2; 2]> {
+    let margin = PATTERN_SPACING;
+    let min_row = ((visible.min.y - margin) / PATTERN_SPACING).floor() as i32;
+    let max_row = ((visible.max.y + margin) / PATTERN_SPACING).ceil() as i32;
+
+    let start_x = visible.min.x - margin;
+    let end_x = visible.max.x + margin;
+    let step = CURVE_TARGET_SEGMENT_PIXELS / zoom;
+
+    (min_row..=max_row)
+        .flat_map(|row| wave_row_segments(row as f32 * PATTERN_SPACING, start_x, end_x, step))
+        .collect()
+}
+
+/// One [`GraphPattern::WaveLines`] row, sinusoidal around `base_y`, sampled from `start_x` to
+/// `end_x` every `step` world units.
+fn wave_row_segments(base_y: f32, start_x: f32, end_x: f32, step: f32) -> Vec<[Pos2; 2]> {
+    let point_at = |x: f32| {
+        let offset = WAVE_AMPLITUDE * (x / PATTERN_SPACING * std::f32::consts::TAU).sin();
+        Pos2::new(x, base_y + offset)
+    };
+
+    let sample_count = ((end_x - start_x) / step).ceil().max(1.0) as usize;
+
+    let mut segments = Vec::with_capacity(sample_count);
+    let mut prev = point_at(start_x);
+
+    for i in 1..=sample_count {
+        let x = (start_x + i as f32 * step).min(end_x);
+        let point = point_at(x);
+        segments.push([prev, point]);
+        prev = point;
+    }
+
+    segments
+}
+
+/// Grid points [`PATTERN_SPACING`] apart in both directions, covering `visible`.
+fn square_dot_grid(visible: Rect) -> Vec<Pos2> {
+    let margin = PATTERN_SPACING;
+    let min_col = ((visible.min.x - margin) / PATTERN_SPACING).floor() as i32;
+    let max_col = ((visible.max.x + margin) / PATTERN_SPACING).ceil() as i32;
+    let min_row = ((visible.min.y - margin) / PATTERN_SPACING).floor() as i32;
+    let max_row = ((visible.max.y + margin) / PATTERN_SPACING).ceil() as i32;
+
+    (min_row..=max_row)
+        .flat_map(|row| {
+            let y = row as f32 * PATTERN_SPACING;
+            (min_col..=max_col).map(move |col| Pos2::new(col as f32 * PATTERN_SPACING, y))
+        })
+        .collect()
+}
+
+/// Grid points on a triangular lattice (every point equidistant, [`PATTERN_SPACING`] apart, from
+/// its six neighbors), covering `visible` — rows [`PATTERN_SPACING`] * `sqrt(3)/2` apart, with
+/// alternating rows offset horizontally by half [`PATTERN_SPACING`].
+fn triangular_dot_grid(visible: Rect) -> Vec<Pos2> {
+    let row_spacing = PATTERN_SPACING * 3f32.sqrt() / 2.0;
+    let margin = PATTERN_SPACING;
+    let min_row = ((visible.min.y - margin) / row_spacing).floor() as i32;
+    let max_row = ((visible.max.y + margin) / row_spacing).ceil() as i32;
+
+    (min_row..=max_row)
+        .flat_map(|row| {
+            let y = row as f32 * row_spacing;
+            let x_offset = if row.rem_euclid(2) == 1 {
+                PATTERN_SPACING / 2.0
+            } else {
+                0.0
+            };
+
+            let min_col = ((visible.min.x - margin - x_offset) / PATTERN_SPACING).floor() as i32;
+            let max_col = ((visible.max.x + margin - x_offset) / PATTERN_SPACING).ceil() as i32;
+
+            (min_col..=max_col)
+                .map(move |col| Pos2::new(col as f32 * PATTERN_SPACING + x_offset, y))
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -235,6 +434,60 @@ mod tests {
             assert!(
                 (pair[1] - pair[0] - spacing).abs() < 1e-4,
                 "consecutive lines should be exactly `spacing` apart: {ys:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn hexagon_edges_are_all_the_same_length_and_share_endpoints() {
+        let center = Pos2::new(3.0, -2.0);
+        let size = 40.0;
+
+        let edges = hexagon_edges(center, size);
+
+        for &[a, b] in &edges {
+            assert!(
+                ((a - center).length() - size).abs() < 1e-3,
+                "every vertex should be exactly `size` from the center"
+            );
+            assert!(
+                ((b - a).length() - size).abs() < 1e-3,
+                "a regular hexagon's edges should be as long as its own circumradius"
+            );
+        }
+
+        for window in edges
+            .iter()
+            .chain(edges.first())
+            .collect::<Vec<_>>()
+            .windows(2)
+        {
+            assert_eq!(
+                window[0][1], window[1][0],
+                "consecutive edges should share an endpoint, forming a closed loop"
+            );
+        }
+    }
+
+    #[test]
+    fn hex_grid_segments_covers_the_visible_rect() {
+        let visible = Rect::from_min_max(Pos2::new(-50.0, -50.0), Pos2::new(250.0, 250.0));
+
+        let segments = hex_grid_segments(visible);
+        assert!(!segments.is_empty());
+
+        // Every corner of `visible` should fall within (or very near) at least one hexagon,
+        // i.e. no gaps in the tiling — approximated here by checking that some vertex of the
+        // grid lies close to each corner's hexagon-sized neighborhood.
+        for corner in [visible.left_top(), visible.right_bottom()] {
+            let nearest = segments
+                .iter()
+                .flat_map(|&[a, b]| [a, b])
+                .map(|point| (point - corner).length())
+                .fold(f32::INFINITY, f32::min);
+            assert!(
+                nearest < HEX_SIZE * 2.0,
+                "corner {corner:?} has no nearby hex grid geometry (nearest point {nearest}away)"
             );
         }
     }
@@ -337,9 +590,9 @@ mod tests {
         for &[a, b] in &segments {
             let screen_chord_length = (b - a).length() * zoom;
             assert!(
-                screen_chord_length <= SPIRAL_TARGET_SEGMENT_PIXELS * 1.5,
+                screen_chord_length <= CURVE_TARGET_SEGMENT_PIXELS * 1.5,
                 "segment from {a:?} to {b:?} is {screen_chord_length}px on screen, \
-                 wider than the {SPIRAL_TARGET_SEGMENT_PIXELS}px target"
+                 wider than the {CURVE_TARGET_SEGMENT_PIXELS}px target"
             );
         }
     }
@@ -361,13 +614,165 @@ mod tests {
     }
 
     #[test]
-    fn pattern_segments_is_empty_only_for_none() {
-        let visible = Rect::from_min_max(Pos2::new(-50.0, -50.0), Pos2::new(50.0, 50.0));
+    fn circle_segments_forms_a_closed_polygon_at_a_constant_radius() {
+        let radius = 200.0;
 
-        assert!(pattern_segments(GraphPattern::None, visible, 1.0).is_empty());
-        assert!(!pattern_segments(GraphPattern::SquareGrid, visible, 1.0).is_empty());
-        assert!(!pattern_segments(GraphPattern::TriangularGrid, visible, 1.0).is_empty());
-        assert!(!pattern_segments(GraphPattern::Rays, visible, 1.0).is_empty());
-        assert!(!pattern_segments(GraphPattern::Spiral, visible, 1.0).is_empty());
+        let segments = circle_segments(radius, 1.0);
+        assert!(segments.len() >= CIRCLE_MIN_SEGMENTS);
+
+        for &[a, b] in &segments {
+            assert!((a.to_vec2().length() - radius).abs() < 1e-2);
+            assert!((b.to_vec2().length() - radius).abs() < 1e-2);
+        }
+
+        for window in segments.windows(2) {
+            assert_eq!(
+                window[0][1], window[1][0],
+                "consecutive segments should share an endpoint"
+            );
+        }
+        assert!(
+            (segments.last().unwrap()[1] - segments.first().unwrap()[0]).length() < 1e-3,
+            "the ring should close on itself"
+        );
+    }
+
+    #[test]
+    fn circle_segments_never_drops_below_the_minimum_segment_count() {
+        // A tiny radius and a very zoomed-out view both push the target chord count near zero.
+        let segments = circle_segments(1.0, 0.1);
+        assert!(segments.len() >= CIRCLE_MIN_SEGMENTS);
+    }
+
+    #[test]
+    fn concentric_circle_segments_covers_rings_out_to_the_visible_corners() {
+        let visible = Rect::from_min_max(Pos2::new(-50.0, -50.0), Pos2::new(250.0, 250.0));
+        let max_radius = max_corner_distance_from_origin(visible);
+
+        let segments = concentric_circle_segments(visible, 1.0);
+        assert!(!segments.is_empty());
+
+        let farthest = segments
+            .iter()
+            .flat_map(|&[a, b]| [a, b])
+            .map(|point| point.to_vec2().length())
+            .fold(0.0, f32::max);
+
+        assert!(
+            farthest >= max_radius - PATTERN_SPACING,
+            "the outermost ring should reach close to the visible corners"
+        );
+    }
+
+    #[test]
+    fn wave_row_segments_stays_within_its_amplitude_of_the_baseline() {
+        let base_y = 60.0;
+
+        let segments = wave_row_segments(base_y, -100.0, 100.0, 5.0);
+        assert!(!segments.is_empty());
+
+        for &[a, b] in &segments {
+            assert!((a.y - base_y).abs() <= WAVE_AMPLITUDE + 1e-3);
+            assert!((b.y - base_y).abs() <= WAVE_AMPLITUDE + 1e-3);
+        }
+
+        for window in segments.windows(2) {
+            assert_eq!(
+                window[0][1], window[1][0],
+                "consecutive segments should share an endpoint"
+            );
+        }
+        assert_eq!(segments.first().unwrap()[0].x, -100.0);
+        assert_eq!(segments.last().unwrap()[1].x, 100.0);
+    }
+
+    #[test]
+    fn wave_line_segments_covers_every_row_across_the_visible_rect() {
+        let visible = Rect::from_min_max(Pos2::new(-10.0, -10.0), Pos2::new(10.0, 250.0));
+
+        let segments = wave_line_segments(visible, 1.0);
+        assert!(!segments.is_empty());
+
+        let min_x = segments
+            .iter()
+            .flat_map(|&[a, b]| [a.x, b.x])
+            .fold(f32::INFINITY, f32::min);
+        let max_x = segments
+            .iter()
+            .flat_map(|&[a, b]| [a.x, b.x])
+            .fold(f32::NEG_INFINITY, f32::max);
+
+        assert!(min_x <= visible.min.x);
+        assert!(max_x >= visible.max.x);
+    }
+
+    #[test]
+    fn square_dot_grid_covers_the_visible_rect_on_a_regular_lattice() {
+        let visible = Rect::from_min_max(Pos2::new(-5.0, -5.0), Pos2::new(245.0, 245.0));
+
+        let dots = square_dot_grid(visible);
+        assert!(!dots.is_empty());
+
+        for dot in &dots {
+            assert!(
+                (dot.x / PATTERN_SPACING).fract().abs() < 1e-3
+                    || (dot.x / PATTERN_SPACING).fract().abs() > 1.0 - 1e-3
+            );
+            assert!(
+                (dot.y / PATTERN_SPACING).fract().abs() < 1e-3
+                    || (dot.y / PATTERN_SPACING).fract().abs() > 1.0 - 1e-3
+            );
+        }
+
+        assert!(dots.iter().any(|dot| dot.x <= visible.min.x));
+        assert!(dots.iter().any(|dot| dot.x >= visible.max.x));
+        assert!(dots.iter().any(|dot| dot.y <= visible.min.y));
+        assert!(dots.iter().any(|dot| dot.y >= visible.max.y));
+    }
+
+    #[test]
+    fn triangular_dot_grid_every_point_is_pattern_spacing_from_its_nearest_neighbor() {
+        let visible = Rect::from_min_max(Pos2::new(-5.0, -5.0), Pos2::new(245.0, 245.0));
+
+        let dots = triangular_dot_grid(visible);
+        assert!(!dots.is_empty());
+
+        for &dot in &dots {
+            let nearest = dots
+                .iter()
+                .filter(|&&other| other != dot)
+                .map(|&other| (other - dot).length())
+                .fold(f32::INFINITY, f32::min);
+
+            assert!(
+                (nearest - PATTERN_SPACING).abs() < 1e-2,
+                "point {dot:?}'s nearest neighbor is {nearest} away, expected {PATTERN_SPACING}"
+            );
+        }
+    }
+
+    #[test]
+    fn pattern_geometry_is_empty_only_for_none() {
+        // Big enough that at least one ring of `GraphPattern::ConcentricCircles` (the first at
+        // radius `PATTERN_SPACING`) actually falls within it, unlike every other pattern here
+        // this one has nothing to draw in a visible rect entirely closer to the origin than its
+        // first ring.
+        let visible = Rect::from_min_max(Pos2::new(-150.0, -150.0), Pos2::new(150.0, 150.0));
+
+        let is_empty = |pattern| match pattern_geometry(pattern, visible, 1.0) {
+            PatternGeometry::Lines(segments) => segments.is_empty(),
+            PatternGeometry::Dots(points) => points.is_empty(),
+        };
+
+        assert!(is_empty(GraphPattern::None));
+        assert!(!is_empty(GraphPattern::SquareGrid));
+        assert!(!is_empty(GraphPattern::TriangularGrid));
+        assert!(!is_empty(GraphPattern::HexagonalGrid));
+        assert!(!is_empty(GraphPattern::Rays));
+        assert!(!is_empty(GraphPattern::Spiral));
+        assert!(!is_empty(GraphPattern::ConcentricCircles));
+        assert!(!is_empty(GraphPattern::WaveLines));
+        assert!(!is_empty(GraphPattern::SquareDots));
+        assert!(!is_empty(GraphPattern::TriangularDots));
     }
 }

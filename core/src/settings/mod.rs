@@ -194,18 +194,28 @@ pub enum GraphPattern {
     None,
     SquareGrid,
     TriangularGrid,
+    HexagonalGrid,
     Rays,
     Spiral,
+    ConcentricCircles,
+    WaveLines,
+    SquareDots,
+    TriangularDots,
 }
 
 impl GraphPattern {
     /// Every variant, in the order offered in the Settings panel.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 10] = [
         Self::None,
         Self::SquareGrid,
         Self::TriangularGrid,
+        Self::HexagonalGrid,
         Self::Rays,
         Self::Spiral,
+        Self::ConcentricCircles,
+        Self::WaveLines,
+        Self::SquareDots,
+        Self::TriangularDots,
     ];
 
     /// A short, human-readable label for the Settings panel.
@@ -214,8 +224,13 @@ impl GraphPattern {
             Self::None => "None",
             Self::SquareGrid => "Square grid",
             Self::TriangularGrid => "Triangular grid",
+            Self::HexagonalGrid => "Hexagonal grid",
             Self::Rays => "Rays",
             Self::Spiral => "Spiral",
+            Self::ConcentricCircles => "Concentric circles",
+            Self::WaveLines => "Wave lines",
+            Self::SquareDots => "Square grid of dots",
+            Self::TriangularDots => "Triangular grid of dots",
         }
     }
 }
