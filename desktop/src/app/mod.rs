@@ -8,7 +8,7 @@ use std::time::Instant;
 
 use eframe::egui;
 
-use crate::{categories_panel, graph_view, search_panel, settings_panel, style, todo_panel};
+use crate::{categories_panel, graph_view, search_panel, settings_panel, style};
 use my_story_notes_core::graph::Simulation;
 use my_story_notes_core::logging::Notifications;
 use my_story_notes_core::project::{NoteId, Project};
@@ -432,13 +432,6 @@ impl eframe::App for App {
                             })
                         };
                     }
-                }
-
-                if let Some(clicked) = todo_panel::draw(ui, project) {
-                    self.open_cell = Some(Cell {
-                        note_index: clicked,
-                        mode: CellMode::Rendered,
-                    });
                 }
             });
 

@@ -34,8 +34,7 @@ impl Block {
     }
 
     /// This block's plain text, flattened across every line and span, discarding all styling —
-    /// e.g. used to read a heading's title text (see [`title`]) or to detect a paragraph that
-    /// starts with "TODO" (see `crate::todo::is_todo`).
+    /// e.g. used to read a heading's title text (see [`title`]).
     pub fn text(&self) -> String {
         let lines = match self {
             Block::Heading { lines, .. } | Block::Paragraph { lines } => lines,
