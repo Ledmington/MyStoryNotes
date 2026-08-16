@@ -56,7 +56,11 @@ pub fn draw(
     let colors = Colors::new(appearance.palette, appearance.background);
     let font_id = TextStyle::Body.resolve(ui.style());
     let sizes = note_sizes(ui, project, &font_id, colors.text);
-    let radii: Vec<f32> = sizes.iter().map(|size| size.x.max(size.y) / 2.0).collect();
+    // The circle has to circumscribe the whole rectangle (half its *diagonal*, not half its
+    // larger side) so that two rectangles never overlap regardless of the angle they approach
+    // from — a circle sized to just the larger side still lets corners clip on a diagonal
+    // approach.
+    let radii: Vec<f32> = sizes.iter().map(|size| size.length() / 2.0).collect();
 
     sim.sync(&project.notes, &edges, &radii);
 

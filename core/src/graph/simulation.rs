@@ -33,7 +33,8 @@ const RESTING_STEPS_REQUIRED: u32 = 60;
 struct NodeState {
     pos: Pos2,
     vel: Vec2,
-    /// This note's physics collision radius (half its label's larger dimension) — see
+    /// This note's physics collision radius (half its label rectangle's diagonal, so the circle
+    /// fully circumscribes it) — see
     /// [`Simulation::sync`]'s `radii` parameter. Refreshed on every `sync` call, used only by the
     /// hard non-overlap correction in [`Simulation::step`], never to compute any force.
     radius: f32,
