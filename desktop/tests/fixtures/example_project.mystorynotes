@@ -82,6 +82,7 @@ Estranged from her brother [Dorin Ashe](<Dorin Ashe>) since he joined the Ember 
 
 Mira starts the story believing the Compact's official maps. Her arc is a slow unraveling of that trust as she pieces together the falsified border survey referenced in [Act One](<Act One>).
 """
+category = "Character"
 
 [[notes]]
 name = "Dorin Ashe"
@@ -104,6 +105,7 @@ Resents Mira for staying with the Compact. Owes a life-debt to [Talos Bren](<Tal
 
 Dorin's arc runs opposite Mira's: he starts distrustful of any institution and must learn, over [Act Two](<Act Two>), that not every Compact official is complicit.
 """
+category = "Character"
 
 [[notes]]
 name = "Ysolde Kade"
@@ -126,6 +128,7 @@ Former mentor to [Talos Bren](<Talos Bren>) during the annexation war; the two h
 
 Ysolde believes the annexation prevented a second famine. Her confrontation with Mira in [Act Three](<Act Three>) is framed as two people who are both right about the past and wrong about the present.
 """
+category = "Character"
 
 [[notes]]
 name = "Talos Bren"
@@ -148,6 +151,7 @@ Hired, without her knowledge of his history, to protect [Mira Solenne](<Mira Sol
 
 Talos spends most of the story deciding whether to tell Mira the truth about her employer before Ysolde forces the issue in [Act Three](<Act Three>).
 """
+category = "Character"
 
 [[notes]]
 name = "The Cartouche"
@@ -164,6 +168,7 @@ A cipher used to sign letters left in the map archives of the [Undercroft](<Unde
 
 *Reveal candidate: could be [Talos Bren](<Talos Bren>) using his old war contacts. See open question in Act Two.*
 """
+category = "Character"
 
 [[notes]]
 name = "Meridian Compact"
@@ -240,6 +245,7 @@ Seat of the Meridian Compact council and home to the [Undercroft](<Undercroft>) 
 
 [Act One](<Act One>) opens here; [Act Three](<Act Three>)'s confrontation between Mira Solenne and Ysolde Kade takes place in the council hall.
 """
+category = "Place"
 
 [[notes]]
 name = "Salt Reach"
@@ -256,6 +262,7 @@ Once independent, the Salt Reach was [annexed](https://en.wikipedia.org/wiki/Ann
 
 *Consider opening Act One with a Salt Reach cold-open instead of Verakiln — would front-load the stakes. Revisit after the draft-2 pass on [Act One](<Act One>).*
 """
+category = "Place"
 
 [[notes]]
 name = "Thistlewick"
@@ -268,6 +275,7 @@ source = """
 
 Flooded badly six years before the story, killing the parents of [Mira Solenne](<Mira Solenne>) and Dorin Ashe. Now a waypoint for Hollow Road river traffic. The siblings reunite here in [Act Two](<Act Two>).
 """
+category = "Place"
 
 [[notes]]
 name = "Undercroft"
@@ -280,6 +288,7 @@ source = """
 
 The former royal cartographic guild's map archive, now administered by the [Meridian Compact](<Meridian Compact>). [Mira Solenne](<Mira Solenne>) has after-hours access as a contracted restorer, which is how she finds the falsified survey in [Act One](<Act One>). The Cartouche leaves letters here.
 """
+category = "Place"
 
 [[notes]]
 name = "Act One"
@@ -302,6 +311,7 @@ A letter signed only "The Cartouche" appears among her restoration work, confirm
 
 *Does Ysolde Kade know Mira has found the discrepancy by the end of Act One, or only in Act Two? Affects the pacing of [Act Two](<Act Two>).*
 """
+category = "Act"
 
 [[notes]]
 name = "Act Two"
@@ -324,6 +334,7 @@ Midpoint reveal (currently being revised): evidence that The Cartouche has acces
 
 *See the draft-2 note on Overview — this midpoint reveal is still being reworked.*
 """
+category = "Act"
 
 [[notes]]
 name = "Act Three"
@@ -342,6 +353,7 @@ Ending is open: Mira must choose between publishing the proof (siding, in effect
 
 [Mira Solenne](<Mira Solenne>), [Talos Bren](<Talos Bren>).
 """
+category = "Act"
 
 [[notes]]
 name = "Timeline"
@@ -384,3 +396,27 @@ source = """
 
 **Salt Reach** — see [Salt Reach](<Salt Reach>).
 """
+
+[[categories]]
+name = "Act"
+color = [
+    242,
+    195,
+    0,
+]
+
+[[categories]]
+name = "Character"
+color = [
+    48,
+    162,
+    0,
+]
+
+[[categories]]
+name = "Place"
+color = [
+    0,
+    129,
+    243,
+]
