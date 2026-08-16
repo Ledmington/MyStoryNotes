@@ -1,7 +1,7 @@
 use egui::Ui;
 use pulldown_cmark::HeadingLevel;
 
-use my_story_notes_core::markdown::{Block, Span, collect_blocks};
+use my_story_notes_core::markdown::{Block, List, Span, collect_blocks};
 use my_story_notes_core::project::Project;
 use my_story_notes_core::settings::RenderPalette;
 
@@ -57,10 +57,54 @@ pub fn render(
                     &mut clicked_link,
                 );
             }
+
+            Block::List(list) => {
+                render_list(ui, list, project, palette, body_size, &mut clicked_link);
+            }
         }
     }
 
     clicked_link
+}
+
+/// Renders a list's items each as a bullet (`•`) or, for an ordered list, a number counting up
+/// from [`List::ordered_start`] — followed by the item's own text. A sub-list nested inside an
+/// item (see [`my_story_notes_core::markdown::ListItem::sublists`]) recurses into the item's own
+/// indented column, so nesting depth falls out of the recursion itself rather than being tracked
+/// explicitly.
+fn render_list(
+    ui: &mut Ui,
+    list: &List,
+    project: &Project,
+    palette: &RenderPalette,
+    body_size: f32,
+    clicked_link: &mut Option<String>,
+) {
+    for (index, item) in list.items.iter().enumerate() {
+        let marker = match list.ordered_start {
+            Some(start) => format!("{}.", start + index as u64),
+            None => "•".to_owned(),
+        };
+
+        ui.horizontal_top(|ui| {
+            ui.label(egui::RichText::new(marker).size(body_size));
+            ui.vertical(|ui| {
+                render_lines(
+                    ui,
+                    &item.lines,
+                    None,
+                    project,
+                    palette,
+                    body_size,
+                    clicked_link,
+                );
+
+                for sublist in &item.sublists {
+                    render_list(ui, sublist, project, palette, body_size, clicked_link);
+                }
+            });
+        });
+    }
 }
 
 fn render_lines(

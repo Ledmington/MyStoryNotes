@@ -24,27 +24,58 @@ pub enum Block {
     Paragraph {
         lines: Vec<Vec<Span>>,
     },
+    List(List),
 }
 
 impl Block {
-    fn lines_mut(&mut self) -> &mut Vec<Vec<Span>> {
+    /// This block's plain text, flattened across every line, span, and (for a list) nested item
+    /// and sublist, discarding all styling — e.g. used to read a heading's title text (see
+    /// [`title`]).
+    pub fn text(&self) -> String {
         match self {
-            Block::Heading { lines, .. } | Block::Paragraph { lines } => lines,
+            Block::Heading { lines, .. } | Block::Paragraph { lines } => lines_text(lines),
+            Block::List(list) => list.text(),
         }
     }
+}
 
-    /// This block's plain text, flattened across every line and span, discarding all styling —
-    /// e.g. used to read a heading's title text (see [`title`]).
-    pub fn text(&self) -> String {
-        let lines = match self {
-            Block::Heading { lines, .. } | Block::Paragraph { lines } => lines,
-        };
-        lines
-            .iter()
-            .flatten()
-            .map(|span| span.text.as_str())
-            .collect()
+/// A bullet or numbered list, holding its top-level [`ListItem`]s — nested sublists live inside
+/// their parent item (see [`ListItem::sublists`]) rather than as their own top-level [`Block`].
+pub struct List {
+    /// `None` for a bullet list; `Some(n)` for a numbered list starting at `n` — CommonMark
+    /// allows a numbered list to start at any number, e.g. `5. item`.
+    pub ordered_start: Option<u64>,
+    pub items: Vec<ListItem>,
+}
+
+impl List {
+    fn text(&self) -> String {
+        self.items.iter().map(ListItem::text).collect()
     }
+}
+
+/// One entry of a [`List`]: its own content, plus any sublist(s) nested directly inside it.
+pub struct ListItem {
+    pub lines: Vec<Vec<Span>>,
+    pub sublists: Vec<List>,
+}
+
+impl ListItem {
+    fn text(&self) -> String {
+        let mut text = lines_text(&self.lines);
+        for sublist in &self.sublists {
+            text.push_str(&sublist.text());
+        }
+        text
+    }
+}
+
+fn lines_text(lines: &[Vec<Span>]) -> String {
+    lines
+        .iter()
+        .flatten()
+        .map(|span| span.text.as_str())
+        .collect()
 }
 
 /// Extracts every link destination in `source`, in document order (including duplicates and
@@ -67,7 +98,7 @@ pub fn title(source: &str) -> Option<String> {
         .into_iter()
         .find_map(|block| match &block {
             Block::Heading { .. } => Some(block.text()),
-            Block::Paragraph { .. } => None,
+            Block::Paragraph { .. } | Block::List(_) => None,
         })
 }
 
@@ -109,112 +140,171 @@ pub fn rename_links(source: &str, old_name: &str, new_name: &str) -> String {
     result
 }
 
-/// Parses `source` into a flat sequence of blocks, resolving inline styling and links onto
-/// [`Span`]s so that a GUI frontend can render a block's content as flowing text instead of one
-/// widget per markdown event.
+/// Which inline styling is currently open while [`collect_inline_lines`] or [`collect_item`]
+/// walks a run of inline events — mirrors the nesting of `<strong>`/`<em>`/link/`<u>` tags in the
+/// event stream, since they're always properly balanced within the block that opened them.
+#[derive(Default)]
+struct InlineState {
+    bold: bool,
+    italic: bool,
+    underline: bool,
+    link: Option<String>,
+}
+
+/// Parses `source` into a flat sequence of top-level blocks, resolving inline styling, links, and
+/// (nested) list structure onto [`Span`]s and [`List`]/[`ListItem`]s so that a GUI frontend can
+/// render each block as flowing text and indented items instead of one widget per markdown event.
 pub fn collect_blocks(source: &str) -> Vec<Block> {
+    let mut parser = Parser::new(source);
     let mut blocks = Vec::new();
-    let mut current: Option<Block> = None;
 
-    let mut bold = false;
-    let mut italic = false;
-    let mut underline = false;
-    let mut link: Option<String> = None;
-
-    for event in Parser::new(source) {
+    while let Some(event) = parser.next() {
         match event {
             Event::Start(Tag::Heading { level, .. }) => {
-                current = Some(Block::Heading {
-                    level,
-                    lines: vec![Vec::new()],
-                });
+                let lines = collect_inline_lines(&mut parser, is_end_heading);
+                blocks.push(Block::Heading { level, lines });
             }
 
-            Event::End(TagEnd::Heading(_)) => {
-                if let Some(block) = current.take() {
-                    blocks.push(block);
-                }
+            Event::Start(Tag::Paragraph) => {
+                let lines = collect_inline_lines(&mut parser, is_end_paragraph);
+                blocks.push(Block::Paragraph { lines });
             }
 
-            Event::Start(Tag::Paragraph | Tag::Item) => {
-                current = Some(Block::Paragraph {
-                    lines: vec![Vec::new()],
-                });
-            }
-
-            Event::End(TagEnd::Paragraph | TagEnd::Item) => {
-                if let Some(block) = current.take() {
-                    blocks.push(block);
-                }
-            }
-
-            Event::Start(Tag::Strong) => bold = true,
-            Event::End(TagEnd::Strong) => bold = false,
-            Event::Start(Tag::Emphasis) => italic = true,
-            Event::End(TagEnd::Emphasis) => italic = false,
-            Event::Start(Tag::Link { dest_url, .. }) => link = Some(dest_url.to_string()),
-            Event::End(TagEnd::Link) => link = None,
-
-            Event::InlineHtml(html) => match html.trim() {
-                "<u>" => underline = true,
-                "</u>" => underline = false,
-                _ => {}
-            },
-
-            Event::Text(text) => {
-                if let Some(block) = &mut current {
-                    block.lines_mut().last_mut().unwrap().push(Span {
-                        text: text.to_string(),
-                        bold,
-                        italic,
-                        underline,
-                        code: false,
-                        link: link.clone(),
-                    });
-                }
-            }
-
-            Event::Code(code) => {
-                if let Some(block) = &mut current {
-                    block.lines_mut().last_mut().unwrap().push(Span {
-                        text: code.to_string(),
-                        bold,
-                        italic,
-                        underline,
-                        code: true,
-                        link: link.clone(),
-                    });
-                }
-            }
-
-            Event::SoftBreak => {
-                if let Some(block) = &mut current {
-                    block.lines_mut().last_mut().unwrap().push(Span {
-                        text: " ".to_owned(),
-                        bold: false,
-                        italic: false,
-                        underline: false,
-                        code: false,
-                        link: None,
-                    });
-                }
-            }
-
-            Event::HardBreak => {
-                if let Some(block) = &mut current {
-                    block.lines_mut().push(Vec::new());
-                }
+            Event::Start(Tag::List(ordered_start)) => {
+                blocks.push(Block::List(collect_list(&mut parser, ordered_start)));
             }
 
             _ => {}
         }
     }
 
-    if let Some(block) = current.take() {
-        blocks.push(block);
+    blocks
+}
+
+fn is_end_heading(event: &Event) -> bool {
+    matches!(event, Event::End(TagEnd::Heading(_)))
+}
+
+fn is_end_paragraph(event: &Event) -> bool {
+    matches!(event, Event::End(TagEnd::Paragraph))
+}
+
+/// Consumes a list's items up to (and including) its closing [`TagEnd::List`], having already
+/// consumed the opening [`Tag::List`].
+fn collect_list(parser: &mut Parser, ordered_start: Option<u64>) -> List {
+    let mut items = Vec::new();
+
+    while let Some(event) = parser.next() {
+        match event {
+            Event::Start(Tag::Item) => items.push(collect_item(parser)),
+            Event::End(TagEnd::List(_)) => break,
+            _ => {}
+        }
     }
 
-    blocks
+    List {
+        ordered_start,
+        items,
+    }
+}
+
+/// Consumes one list item's content up to its closing [`TagEnd::Item`], having already consumed
+/// the opening [`Tag::Item`]. A *tight* list (no blank lines between items) puts the item's
+/// inline content directly under `Item`; a *loose* one wraps it in its own nested `Paragraph` —
+/// either way it ends up in [`ListItem::lines`]. A nested `List` (sub-bullets) becomes one of
+/// [`ListItem::sublists`] instead.
+fn collect_item(parser: &mut Parser) -> ListItem {
+    let mut lines: Vec<Vec<Span>> = vec![Vec::new()];
+    let mut sublists = Vec::new();
+    let mut inline = InlineState::default();
+
+    while let Some(event) = parser.next() {
+        match event {
+            Event::End(TagEnd::Item) => break,
+
+            Event::Start(Tag::Paragraph) => {
+                let more = collect_inline_lines(parser, is_end_paragraph);
+                if lines.iter().all(Vec::is_empty) {
+                    lines = more;
+                } else {
+                    lines.extend(more);
+                }
+            }
+
+            Event::Start(Tag::List(ordered_start)) => {
+                sublists.push(collect_list(parser, ordered_start));
+            }
+
+            other => apply_inline_event(other, &mut lines, &mut inline),
+        }
+    }
+
+    ListItem { lines, sublists }
+}
+
+/// Consumes inline events into lines of [`Span`]s until `is_end` matches, having already consumed
+/// the block's opening tag. Shared by headings, paragraphs, and (via [`collect_item`]) list items.
+fn collect_inline_lines(parser: &mut Parser, is_end: fn(&Event) -> bool) -> Vec<Vec<Span>> {
+    let mut lines = vec![Vec::new()];
+    let mut inline = InlineState::default();
+
+    for event in parser.by_ref() {
+        if is_end(&event) {
+            break;
+        }
+        apply_inline_event(event, &mut lines, &mut inline);
+    }
+
+    lines
+}
+
+/// Applies one inline-level event (styling markers, text, code, breaks) to `lines`/`inline`.
+fn apply_inline_event(event: Event, lines: &mut Vec<Vec<Span>>, inline: &mut InlineState) {
+    match event {
+        Event::Start(Tag::Strong) => inline.bold = true,
+        Event::End(TagEnd::Strong) => inline.bold = false,
+        Event::Start(Tag::Emphasis) => inline.italic = true,
+        Event::End(TagEnd::Emphasis) => inline.italic = false,
+        Event::Start(Tag::Link { dest_url, .. }) => inline.link = Some(dest_url.to_string()),
+        Event::End(TagEnd::Link) => inline.link = None,
+
+        Event::InlineHtml(html) => match html.trim() {
+            "<u>" => inline.underline = true,
+            "</u>" => inline.underline = false,
+            _ => {}
+        },
+
+        Event::Text(text) => lines.last_mut().unwrap().push(Span {
+            text: text.to_string(),
+            bold: inline.bold,
+            italic: inline.italic,
+            underline: inline.underline,
+            code: false,
+            link: inline.link.clone(),
+        }),
+
+        Event::Code(code) => lines.last_mut().unwrap().push(Span {
+            text: code.to_string(),
+            bold: inline.bold,
+            italic: inline.italic,
+            underline: inline.underline,
+            code: true,
+            link: inline.link.clone(),
+        }),
+
+        Event::SoftBreak => lines.last_mut().unwrap().push(Span {
+            text: " ".to_owned(),
+            bold: false,
+            italic: false,
+            underline: false,
+            code: false,
+            link: None,
+        }),
+
+        Event::HardBreak => lines.push(Vec::new()),
+
+        _ => {}
+    }
 }
 
 #[cfg(test)]
@@ -282,5 +372,66 @@ mod tests {
     fn rename_links_leaves_plain_text_mentions_of_the_name_alone() {
         let renamed = rename_links("Bob said hello. [Bob](Bob) waved back.", "Bob", "Robert");
         assert_eq!(renamed, "Bob said hello. [Bob](Robert) waved back.");
+    }
+
+    fn sole_list(source: &str) -> List {
+        let mut blocks = collect_blocks(source);
+        assert_eq!(blocks.len(), 1, "expected exactly one block");
+        match blocks.remove(0) {
+            Block::List(list) => list,
+            _ => panic!("expected a list block"),
+        }
+    }
+
+    #[test]
+    fn collect_blocks_parses_a_bullet_list() {
+        let list = sole_list("- a\n- b\n- c");
+
+        assert_eq!(list.ordered_start, None);
+        let texts: Vec<String> = list
+            .items
+            .iter()
+            .map(|item| lines_text(&item.lines))
+            .collect();
+        assert_eq!(texts, vec!["a".to_owned(), "b".to_owned(), "c".to_owned()]);
+    }
+
+    #[test]
+    fn collect_blocks_parses_a_numbered_list_honoring_its_start_number() {
+        let list = sole_list("5. a\n6. b");
+
+        assert_eq!(list.ordered_start, Some(5));
+        assert_eq!(list.items.len(), 2);
+        assert_eq!(lines_text(&list.items[1].lines), "b");
+    }
+
+    #[test]
+    fn collect_blocks_nests_a_sublist_inside_its_parent_item() {
+        let list = sole_list("- a\n  - nested\n- b");
+
+        assert_eq!(list.items.len(), 2);
+        assert_eq!(lines_text(&list.items[0].lines), "a");
+
+        assert_eq!(list.items[0].sublists.len(), 1);
+        let sublist = &list.items[0].sublists[0];
+        assert_eq!(sublist.ordered_start, None);
+        assert_eq!(sublist.items.len(), 1);
+        assert_eq!(lines_text(&sublist.items[0].lines), "nested");
+
+        assert!(list.items[1].sublists.is_empty());
+    }
+
+    #[test]
+    fn collect_blocks_parses_a_loose_list_the_same_as_a_tight_one() {
+        let list = sole_list("- a\n\n- b");
+
+        assert_eq!(list.items.len(), 2);
+        assert_eq!(lines_text(&list.items[0].lines), "a");
+        assert_eq!(lines_text(&list.items[1].lines), "b");
+    }
+
+    #[test]
+    fn title_ignores_a_list_and_still_finds_the_heading() {
+        assert_eq!(title("- a\n- b\n\n# Heading"), Some("Heading".to_owned()));
     }
 }
