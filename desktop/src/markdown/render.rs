@@ -2,16 +2,21 @@ use egui::Ui;
 use pulldown_cmark::HeadingLevel;
 
 use my_story_notes_core::markdown::{Block, Span, collect_blocks};
+use my_story_notes_core::project::Project;
 use my_story_notes_core::settings::RenderPalette;
 
 use crate::fonts;
 use crate::style;
 
 /// Renders `source` as markdown into `ui`, using `palette` for headings/bold/code/link colors
-/// and `body_size` as the base font size (headings scale off of it).
+/// and `body_size` as the base font size (headings scale off of it). A link to another note in
+/// `project` that has a category assigned is colored with that category's color instead of
+/// `palette.link`, the same category color a reader would see on that note's node in the graph
+/// view — so a hyperlink hints at what kind of note it leads to before it's clicked.
 pub fn render(
     ui: &mut Ui,
     source: &str,
+    project: &Project,
     palette: &RenderPalette,
     body_size: f32,
 ) -> Option<String> {
@@ -29,12 +34,28 @@ pub fn render(
                 };
 
                 ui.add_space(4.0);
-                render_lines(ui, lines, Some(size), palette, body_size, &mut clicked_link);
+                render_lines(
+                    ui,
+                    lines,
+                    Some(size),
+                    project,
+                    palette,
+                    body_size,
+                    &mut clicked_link,
+                );
                 ui.add_space(4.0);
             }
 
             Block::Paragraph { lines } => {
-                render_lines(ui, lines, None, palette, body_size, &mut clicked_link);
+                render_lines(
+                    ui,
+                    lines,
+                    None,
+                    project,
+                    palette,
+                    body_size,
+                    &mut clicked_link,
+                );
             }
         }
     }
@@ -46,6 +67,7 @@ fn render_lines(
     ui: &mut Ui,
     lines: &[Vec<Span>],
     heading_size: Option<f32>,
+    project: &Project,
     palette: &RenderPalette,
     body_size: f32,
     clicked_link: &mut Option<String>,
@@ -55,7 +77,15 @@ fn render_lines(
             ui.spacing_mut().item_spacing.x = 0.0;
 
             for span in line {
-                render_span(ui, span, heading_size, palette, body_size, clicked_link);
+                render_span(
+                    ui,
+                    span,
+                    heading_size,
+                    project,
+                    palette,
+                    body_size,
+                    clicked_link,
+                );
             }
         });
     }
@@ -65,6 +95,7 @@ fn render_span(
     ui: &mut Ui,
     span: &Span,
     heading_size: Option<f32>,
+    project: &Project,
     palette: &RenderPalette,
     body_size: f32,
     clicked_link: &mut Option<String>,
@@ -84,8 +115,12 @@ fn render_span(
         Some(palette.code)
     } else if heading_size.is_some() {
         Some(palette.heading)
-    } else if span.link.is_some() {
-        Some(palette.link)
+    } else if let Some(target) = &span.link {
+        Some(
+            project
+                .category_color_by_name(target)
+                .unwrap_or(palette.link),
+        )
     } else if span.bold {
         Some(palette.bold)
     } else {

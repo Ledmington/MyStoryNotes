@@ -145,6 +145,7 @@ fn draw_cell(
                         markdown::render(
                             ui,
                             &note.source,
+                            project,
                             &settings.render,
                             settings.font_size.render,
                         )

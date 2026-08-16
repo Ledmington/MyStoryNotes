@@ -298,6 +298,15 @@ impl Project {
             .find(|category| category.name == name)
             .map(|category| category.color)
     }
+
+    /// The color of the category assigned to the note named `name`, if a note by that name exists
+    /// in the project and has a category assigned — used to color a rendered hyperlink by the
+    /// category of the note it links to, the same way [`Self::category_color`] colors that note's
+    /// own node border in the graph view.
+    pub fn category_color_by_name(&self, name: &str) -> Option<[u8; 3]> {
+        let note = self.notes.iter().find(|note| note.name == name)?;
+        self.category_color(note)
+    }
 }
 
 /// Trims `name` and validates it for [`Project::create_note`]/[`Project::rename_note`]/
@@ -576,5 +585,24 @@ mod tests {
             project.category_color(&project.notes[usize::from(bob)]),
             None
         );
+    }
+
+    #[test]
+    fn category_color_by_name_resolves_a_note_s_assigned_category() {
+        let mut project = Project::new();
+        project.add_category("Character", [255, 0, 0]).unwrap();
+        let alice = project.create_note("Alice").unwrap();
+        project.notes[usize::from(alice)].category = Some("Character".to_owned());
+        project.create_note("Bob").unwrap();
+
+        assert_eq!(project.category_color_by_name("Alice"), Some([255, 0, 0]));
+        assert_eq!(project.category_color_by_name("Bob"), None);
+    }
+
+    #[test]
+    fn category_color_by_name_returns_none_for_a_name_with_no_matching_note() {
+        let project = Project::new();
+
+        assert_eq!(project.category_color_by_name("Nobody"), None);
     }
 }
