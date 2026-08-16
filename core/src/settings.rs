@@ -11,10 +11,15 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct UiPalette {
+    #[serde(with = "crate::hex_color")]
     pub window_background: [u8; 3],
+    #[serde(with = "crate::hex_color")]
     pub panel_background: [u8; 3],
+    #[serde(with = "crate::hex_color")]
     pub text: [u8; 3],
+    #[serde(with = "crate::hex_color")]
     pub accent: [u8; 3],
+    #[serde(with = "crate::hex_color")]
     pub hyperlink: [u8; 3],
 }
 
@@ -63,9 +68,13 @@ impl Default for FontSizes {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RenderPalette {
+    #[serde(with = "crate::hex_color")]
     pub heading: [u8; 3],
+    #[serde(with = "crate::hex_color")]
     pub bold: [u8; 3],
+    #[serde(with = "crate::hex_color")]
     pub code: [u8; 3],
+    #[serde(with = "crate::hex_color")]
     pub link: [u8; 3],
 }
 
@@ -86,10 +95,15 @@ impl Default for RenderPalette {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct EditPalette {
+    #[serde(with = "crate::hex_color")]
     pub heading: [u8; 3],
+    #[serde(with = "crate::hex_color")]
     pub bold: [u8; 3],
+    #[serde(with = "crate::hex_color")]
     pub punctuation: [u8; 3],
+    #[serde(with = "crate::hex_color")]
     pub code: [u8; 3],
+    #[serde(with = "crate::hex_color")]
     pub link: [u8; 3],
 }
 
@@ -208,6 +222,7 @@ impl GraphPattern {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct GraphBackground {
+    #[serde(with = "crate::hex_color")]
     pub color: [u8; 3],
     pub pattern: GraphPattern,
 }

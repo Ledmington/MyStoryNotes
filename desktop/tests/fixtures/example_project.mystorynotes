@@ -399,24 +399,12 @@ source = """
 
 [[categories]]
 name = "Act"
-color = [
-    242,
-    195,
-    0,
-]
+color = "#f2c300"
 
 [[categories]]
 name = "Character"
-color = [
-    48,
-    162,
-    0,
-]
+color = "#30a200"
 
 [[categories]]
 name = "Place"
-color = [
-    0,
-    129,
-    243,
-]
+color = "#0081f3"

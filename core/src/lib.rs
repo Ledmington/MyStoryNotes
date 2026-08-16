@@ -4,6 +4,7 @@
 //! frontend) without pulling in `egui`/`eframe` at all.
 
 pub mod graph;
+mod hex_color;
 pub mod inline_format;
 pub mod logging;
 pub mod markdown;

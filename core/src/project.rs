@@ -68,6 +68,7 @@ fn is_false(value: &bool) -> bool {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Category {
     pub name: String,
+    #[serde(with = "crate::hex_color")]
     pub color: [u8; 3],
 }
 
