@@ -1,7 +1,9 @@
 mod note_lifecycle;
 mod note_window;
 mod persistence;
+mod sidebar;
 mod sort;
+mod toolbar;
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -17,18 +19,8 @@ use my_story_notes_core::settings::Settings;
 
 use note_window::{CellAction, draw_note_window};
 use persistence::{SaveKind, SaveStatus};
-use sort::{NoteSort, sort_button, sorted_note_indices};
+use sort::NoteSort;
 
-const NEW_PROJECT_SHORTCUT: egui::KeyboardShortcut =
-    egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::N);
-const OPEN_PROJECT_SHORTCUT: egui::KeyboardShortcut =
-    egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::O);
-const SAVE_PROJECT_SHORTCUT: egui::KeyboardShortcut =
-    egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::S);
-const NEW_NOTE_SHORTCUT: egui::KeyboardShortcut =
-    egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::M);
-const SEARCH_SHORTCUT: egui::KeyboardShortcut =
-    egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::F);
 const CLOSE_PANEL_SHORTCUT: egui::KeyboardShortcut =
     egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::Escape);
 /// Either key opens the delete-confirmation dialog for the currently open note. "Delete" is
@@ -171,16 +163,6 @@ impl eframe::App for App {
             style::apply_font_sizes(style, &font_size);
         });
 
-        let new_project_pressed =
-            ui.input_mut(|input| input.consume_shortcut(&NEW_PROJECT_SHORTCUT));
-        let open_project_pressed =
-            ui.input_mut(|input| input.consume_shortcut(&OPEN_PROJECT_SHORTCUT));
-        let save_project_pressed =
-            ui.input_mut(|input| input.consume_shortcut(&SAVE_PROJECT_SHORTCUT));
-        let new_note_pressed = self.project.is_some()
-            && ui.input_mut(|input| input.consume_shortcut(&NEW_NOTE_SHORTCUT));
-        let search_pressed = self.project.is_some()
-            && ui.input_mut(|input| input.consume_shortcut(&SEARCH_SHORTCUT));
         // Only consumed when nothing else would react to Escape first — otherwise it would eat
         // the keypress a dialog, the search window, or the categories window needs for its own
         // close-on-Escape handling.
@@ -209,23 +191,6 @@ impl eframe::App for App {
                     .any(|shortcut| input.consume_shortcut(shortcut))
             });
 
-        if new_project_pressed {
-            self.new_project();
-        }
-        if open_project_pressed {
-            self.open_project();
-        }
-        if save_project_pressed {
-            self.save_project();
-        }
-        if new_note_pressed {
-            self.new_note_dialog = true;
-            self.new_note_name.clear();
-            self.new_note_request_focus = true;
-        }
-        if search_pressed {
-            self.search.open();
-        }
         if close_panel_pressed {
             self.open_cell = None;
         }
@@ -233,119 +198,7 @@ impl eframe::App for App {
             self.delete_confirm = self.open_cell.as_ref().map(|cell| cell.note_index);
         }
 
-        egui::Panel::top("toolbar").show(ui, |ui| {
-            ui.horizontal(|ui| {
-                if ui
-                    .button("New Project")
-                    .on_hover_text(ui.ctx().format_shortcut(&NEW_PROJECT_SHORTCUT))
-                    .clicked()
-                {
-                    self.new_project();
-                }
-
-                if ui
-                    .button("Open Project")
-                    .on_hover_text(ui.ctx().format_shortcut(&OPEN_PROJECT_SHORTCUT))
-                    .clicked()
-                {
-                    self.open_project();
-                }
-
-                if !self.settings.recent_projects.is_empty() {
-                    let mut recent_clicked = None;
-
-                    ui.menu_button("Open Recent Project", |ui| {
-                        for path in &self.settings.recent_projects {
-                            let label = path
-                                .file_name()
-                                .map(|name| name.to_string_lossy().into_owned())
-                                .unwrap_or_else(|| path.display().to_string());
-
-                            if ui
-                                .button(label)
-                                .on_hover_text(path.display().to_string())
-                                .clicked()
-                            {
-                                recent_clicked = Some(path.clone());
-                                ui.close();
-                            }
-                        }
-                    });
-
-                    if let Some(path) = recent_clicked {
-                        self.open_project_from(path);
-                    }
-                }
-
-                if self.project.is_some() {
-                    if ui
-                        .button("Save Project")
-                        .on_hover_text(ui.ctx().format_shortcut(&SAVE_PROJECT_SHORTCUT))
-                        .clicked()
-                    {
-                        self.save_project();
-                    }
-
-                    ui.separator();
-
-                    if ui
-                        .button("+ New Note")
-                        .on_hover_text(ui.ctx().format_shortcut(&NEW_NOTE_SHORTCUT))
-                        .clicked()
-                    {
-                        self.new_note_dialog = true;
-                        self.new_note_name.clear();
-                        self.new_note_request_focus = true;
-                    }
-
-                    ui.separator();
-
-                    let label =
-                        crate::fonts::icon_label(ui, crate::fonts::icon::BOOK, "Manuscript");
-
-                    if ui
-                        .button(label)
-                        .on_hover_text("Your story's text, linked to your notes")
-                        .clicked()
-                    {
-                        self.open_manuscript();
-                    }
-
-                    ui.separator();
-
-                    let label = crate::fonts::icon_label(ui, crate::fonts::icon::SEARCH, "Search");
-
-                    if ui
-                        .button(label)
-                        .on_hover_text(ui.ctx().format_shortcut(&SEARCH_SHORTCUT))
-                        .clicked()
-                    {
-                        self.search.open();
-                    }
-
-                    ui.separator();
-
-                    let label =
-                        crate::fonts::icon_label(ui, crate::fonts::icon::TAGS, "Categories");
-
-                    if ui
-                        .button(label)
-                        .on_hover_text("Manage this project's note categories")
-                        .clicked()
-                    {
-                        self.show_categories = !self.show_categories;
-                    }
-                }
-
-                ui.separator();
-
-                let label = crate::fonts::icon_label(ui, crate::fonts::icon::COG, "Settings");
-
-                if ui.button(label).clicked() {
-                    self.show_settings = !self.show_settings;
-                }
-            });
-        });
+        self.draw_toolbar(ui);
 
         if self.show_settings {
             egui::Panel::right("settings")
@@ -355,94 +208,7 @@ impl eframe::App for App {
                 });
         }
 
-        let mut hovered_note = None;
-
-        egui::Panel::left("sidebar")
-            .default_size(240.0)
-            .show(ui, |ui| {
-                ui.heading("Notes");
-
-                let Some(project) = &self.project else {
-                    ui.label("No project open.");
-                    return;
-                };
-
-                ui.separator();
-
-                if project.notes.is_empty() {
-                    ui.label("No notes yet.");
-                    return;
-                }
-
-                ui.horizontal(|ui| {
-                    ui.label("Sort:");
-
-                    if sort_button(
-                        ui,
-                        "Name",
-                        self.note_sort,
-                        NoteSort::NameAscending,
-                        NoteSort::NameDescending,
-                    ) {
-                        self.note_sort = self
-                            .note_sort
-                            .cycle(NoteSort::NameAscending, NoteSort::NameDescending);
-                    }
-                    if sort_button(
-                        ui,
-                        "Connections",
-                        self.note_sort,
-                        NoteSort::ConnectionsAscending,
-                        NoteSort::ConnectionsDescending,
-                    ) {
-                        self.note_sort = self.note_sort.cycle(
-                            NoteSort::ConnectionsAscending,
-                            NoteSort::ConnectionsDescending,
-                        );
-                    }
-                });
-                ui.separator();
-
-                for index in sorted_note_indices(project, self.note_sort) {
-                    let note = &project.notes[usize::from(index)];
-                    let is_open = self
-                        .open_cell
-                        .as_ref()
-                        .is_some_and(|cell| cell.note_index == index);
-
-                    let category_color = project.category_color(note).map(style::rgb);
-
-                    let label: egui::WidgetText = if note.is_manuscript {
-                        crate::fonts::icon_label_colored(
-                            ui,
-                            crate::fonts::icon::BOOK,
-                            &note.name,
-                            category_color.unwrap_or_else(|| ui.visuals().text_color()),
-                        )
-                    } else if let Some(color) = category_color {
-                        egui::RichText::new(&note.name).color(color).into()
-                    } else {
-                        note.name.clone().into()
-                    };
-
-                    let response = ui.selectable_label(is_open, label);
-
-                    if response.hovered() {
-                        hovered_note = Some(index);
-                    }
-
-                    if response.clicked() {
-                        self.open_cell = if is_open {
-                            None
-                        } else {
-                            Some(Cell {
-                                note_index: index,
-                                mode: CellMode::Rendered,
-                            })
-                        };
-                    }
-                }
-            });
+        let hovered_note = self.draw_sidebar(ui);
 
         egui::CentralPanel::default().show(ui, |ui| {
             let Some(project) = &mut self.project else {
