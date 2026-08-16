@@ -255,7 +255,11 @@ impl App {
             .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(12.0, -12.0))
             .show(ctx, |ui| {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    ui.label(text);
+                    // The popup's text changes length between frames (e.g. "Saving…" to "Saved
+                    // in …"). Without this, `Area` reuses the previous frame's (narrower)
+                    // measured width as this frame's wrap width, so a longer message wraps into
+                    // a tall, narrow column instead of the popup widening to fit it.
+                    ui.add(egui::Label::new(text).wrap_mode(egui::TextWrapMode::Extend));
                 });
             });
     }
