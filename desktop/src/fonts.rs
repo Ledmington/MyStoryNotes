@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use egui::text::{LayoutJob, TextFormat};
-use egui::{Context, FontData, FontDefinitions, FontFamily, FontId, TextStyle, Ui, WidgetText};
+use egui::{
+    Color32, Context, FontData, FontDefinitions, FontFamily, FontId, TextStyle, Ui, WidgetText,
+};
 
 const SERIF: &str = "serif";
 const SERIF_BOLD: &str = "serif-bold";
@@ -133,8 +135,13 @@ pub fn mono(size: f32, bold: bool, italic: bool) -> FontId {
 /// A button label combining an [`icon`] glyph with text, e.g. `icon_label(ui, icon::PENCIL,
 /// "Edit")`, so buttons can use real icons instead of emoji characters.
 pub fn icon_label(ui: &Ui, icon: char, label: &str) -> WidgetText {
+    icon_label_colored(ui, icon, label, ui.visuals().text_color())
+}
+
+/// Like [`icon_label`], but in `color` instead of the UI's default text color — e.g. for a
+/// manuscript note whose sidebar entry should carry its assigned category's color.
+pub fn icon_label_colored(ui: &Ui, icon: char, label: &str, color: Color32) -> WidgetText {
     let size = TextStyle::Button.resolve(ui.style()).size;
-    let color = ui.visuals().text_color();
 
     let mut job = LayoutJob::default();
     job.append(

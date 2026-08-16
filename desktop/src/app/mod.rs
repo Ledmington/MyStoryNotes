@@ -410,8 +410,17 @@ impl eframe::App for App {
                         .as_ref()
                         .is_some_and(|cell| cell.note_index == index);
 
+                    let category_color = project.category_color(note).map(style::rgb);
+
                     let label: egui::WidgetText = if note.is_manuscript {
-                        crate::fonts::icon_label(ui, crate::fonts::icon::BOOK, &note.name)
+                        crate::fonts::icon_label_colored(
+                            ui,
+                            crate::fonts::icon::BOOK,
+                            &note.name,
+                            category_color.unwrap_or_else(|| ui.visuals().text_color()),
+                        )
+                    } else if let Some(color) = category_color {
+                        egui::RichText::new(&note.name).color(color).into()
                     } else {
                         note.name.clone().into()
                     };
