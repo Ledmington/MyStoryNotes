@@ -139,6 +139,20 @@ fn draw_cell(
                     return action;
                 };
 
+                // Scoped to just the rendered content's own rect, rather than the whole
+                // cell (which would also cover the Edit/Rename/Delete buttons above): egui
+                // only lets one interactive widget "win" the pointer at a given position each
+                // frame, so a click-sensing region spanning the buttons would shadow them and
+                // they'd stop registering hover or clicks at all. Registered *before* the
+                // content is drawn (rather than sized off its output rect afterwards) so that
+                // links inside the content, added on top of this region, win that same
+                // per-frame tie-break instead of being shadowed by it themselves.
+                let content_response = ui.interact(
+                    ui.available_rect_before_wrap(),
+                    ui.make_persistent_id(("note_content_click", cell.note_index)),
+                    egui::Sense::click(),
+                );
+
                 let scroll_output = egui::ScrollArea::vertical()
                     .id_salt(("note_scroll", cell.note_index))
                     .show(ui, |ui| {
@@ -151,17 +165,6 @@ fn draw_cell(
                         )
                     });
 
-                // Scoped to just the rendered content's own rect, rather than the whole
-                // cell (which would also cover the Edit/Rename/Delete buttons above): egui
-                // only lets one interactive widget "win" the pointer at a given position each
-                // frame, so a click-sensing region spanning the buttons would shadow them and
-                // they'd stop registering hover or clicks at all.
-                let content_response = ui.interact(
-                    scroll_output.inner_rect,
-                    ui.make_persistent_id(("note_content_click", cell.note_index)),
-                    egui::Sense::click(),
-                );
-
                 let clicked_link = scroll_output.inner;
 
                 if let Some(target) = clicked_link {
@@ -169,6 +172,7 @@ fn draw_cell(
 
                     if let Some(index) = project.notes.iter().position(|note| note.name == target) {
                         cell.note_index = NoteId::from(index);
+                        cell.mode = CellMode::Rendered;
                     } else if is_web_url(&target) {
                         match webbrowser::open(&target) {
                             Ok(()) => log::info!("Opened '{target}' in the browser"),
