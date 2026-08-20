@@ -70,20 +70,37 @@ impl App {
 
                     let category_color = project.category_color(note).map(style::rgb);
 
+                    // A selected row's background already switches to the theme's own accent
+                    // color (egui's built-in selection highlight): coloring the text by category
+                    // on top of that can make it unreadable if the two happen to be close, e.g.
+                    // identical. Selected rows keep the theme's text color and show the category
+                    // as a border instead, the same convention the graph view uses for a node's
+                    // border (see `graph_view::draw_nodes`).
+                    let text_color = if is_open { None } else { category_color };
+
                     let label: egui::WidgetText = if note.is_manuscript {
                         crate::fonts::icon_label_colored(
                             ui,
                             crate::fonts::icon::BOOK,
                             &note.name,
-                            category_color.unwrap_or_else(|| ui.visuals().text_color()),
+                            text_color.unwrap_or_else(|| ui.visuals().text_color()),
                         )
-                    } else if let Some(color) = category_color {
+                    } else if let Some(color) = text_color {
                         egui::RichText::new(&note.name).color(color).into()
                     } else {
                         note.name.clone().into()
                     };
 
                     let response = ui.selectable_label(is_open, label);
+
+                    if is_open && let Some(color) = category_color {
+                        ui.painter().rect_stroke(
+                            response.rect,
+                            ui.visuals().widgets.inactive.corner_radius,
+                            egui::Stroke::new(2.0, color),
+                            egui::StrokeKind::Outside,
+                        );
+                    }
 
                     if response.hovered() {
                         hovered_note = Some(index);
