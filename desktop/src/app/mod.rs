@@ -267,6 +267,13 @@ impl eframe::App for App {
                 }
                 Some(CellAction::Close) => {
                     self.open_cell = None;
+                    // Both dialogs below are opened from the note window's own action row, so
+                    // closing the window from under them (e.g. its title-bar close button)
+                    // should dismiss them too, rather than leaving them open with no note
+                    // window left for them to belong to.
+                    self.rename_dialog = None;
+                    self.rename_name.clear();
+                    self.delete_confirm = None;
                 }
                 None => {}
             }
