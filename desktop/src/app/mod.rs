@@ -6,7 +6,7 @@ mod sort;
 mod toolbar;
 
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use eframe::egui;
 
@@ -20,6 +20,11 @@ use my_story_notes_core::settings::Settings;
 use note_window::{CellAction, draw_note_window};
 use persistence::{SaveKind, SaveStatus};
 use sort::NoteSort;
+
+/// How long an error notification stays up before disappearing on its own.
+const NOTIFICATION_DISPLAY_DURATION: Duration = Duration::from_secs(5);
+/// How long the fade-out animation takes, at the end of [`NOTIFICATION_DISPLAY_DURATION`].
+const NOTIFICATION_FADE_DURATION: Duration = Duration::from_millis(500);
 
 const CLOSE_PANEL_SHORTCUT: egui::KeyboardShortcut =
     egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::Escape);
@@ -111,7 +116,9 @@ impl App {
     }
 
     /// Shows queued error-level log messages as dismissible red popups stacked in the
-    /// bottom-right corner.
+    /// bottom-right corner. Each popup disappears on its own, fading out over
+    /// [`NOTIFICATION_FADE_DURATION`] once [`NOTIFICATION_DISPLAY_DURATION`] has passed since it
+    /// was queued.
     fn draw_notifications(&mut self, ctx: &egui::Context) {
         let messages = self.notifications.snapshot();
 
@@ -119,31 +126,58 @@ impl App {
             return;
         }
 
-        let mut dismiss = None;
+        // Keeps the fade-out animation and the auto-dismiss timer above ticking even with the
+        // user otherwise idle.
+        ctx.request_repaint();
+
+        let fade_start = NOTIFICATION_DISPLAY_DURATION - NOTIFICATION_FADE_DURATION;
+        let mut dismiss = Vec::new();
 
         egui::Area::new(egui::Id::new("notifications"))
             .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-12.0, -12.0))
             .show(ctx, |ui| {
-                for (index, message) in messages.iter().enumerate() {
-                    egui::Frame::popup(ui.style())
-                        .fill(egui::Color32::from_rgb(120, 20, 20))
-                        .show(ui, |ui| {
-                            ui.set_max_width(320.0);
+                for (index, notification) in messages.iter().enumerate() {
+                    let elapsed = notification.created_at.elapsed();
 
-                            ui.horizontal(|ui| {
-                                ui.colored_label(egui::Color32::WHITE, message);
+                    if elapsed >= NOTIFICATION_DISPLAY_DURATION {
+                        dismiss.push(index);
+                        continue;
+                    }
 
-                                if ui.small_button("x").clicked() {
-                                    dismiss = Some(index);
-                                }
+                    let opacity = if elapsed >= fade_start {
+                        1.0 - (elapsed - fade_start).as_secs_f32()
+                            / NOTIFICATION_FADE_DURATION.as_secs_f32()
+                    } else {
+                        1.0
+                    };
+
+                    ui.scope(|ui| {
+                        ui.set_opacity(opacity);
+
+                        egui::Frame::popup(ui.style())
+                            .fill(egui::Color32::from_rgb(120, 20, 20))
+                            .show(ui, |ui| {
+                                ui.set_max_width(320.0);
+
+                                ui.horizontal(|ui| {
+                                    ui.colored_label(egui::Color32::WHITE, &notification.message);
+
+                                    if ui.small_button("x").clicked() {
+                                        dismiss.push(index);
+                                    }
+                                });
                             });
-                        });
+                    });
 
                     ui.add_space(4.0);
                 }
             });
 
-        if let Some(index) = dismiss {
+        // Removed in reverse order so earlier indices in `dismiss` stay valid as later ones are
+        // removed.
+        dismiss.sort_unstable();
+        dismiss.dedup();
+        for index in dismiss.into_iter().rev() {
             self.notifications.dismiss(index);
         }
     }

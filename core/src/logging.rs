@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use log::{Level, LevelFilter, Log, Metadata, Record};
 use time::OffsetDateTime;
@@ -10,13 +11,21 @@ use time::macros::format_description;
 const TIMESTAMP_FORMAT: &[FormatItem<'_>] =
     format_description!("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3]");
 
+/// A queued error-level message together with when it was queued, so the UI can time its
+/// auto-dismissal and fade-out animation.
+#[derive(Clone)]
+pub struct Notification {
+    pub message: String,
+    pub created_at: Instant,
+}
+
 /// Error-level messages, queued for the UI to show as dismissible red popups. Cheap to clone;
 /// clones share the same underlying queue.
 #[derive(Clone, Default)]
-pub struct Notifications(Arc<Mutex<Vec<String>>>);
+pub struct Notifications(Arc<Mutex<Vec<Notification>>>);
 
 impl Notifications {
-    pub fn snapshot(&self) -> Vec<String> {
+    pub fn snapshot(&self) -> Vec<Notification> {
         self.0.lock().unwrap().clone()
     }
 
@@ -29,7 +38,10 @@ impl Notifications {
     }
 
     fn push(&self, message: String) {
-        self.0.lock().unwrap().push(message);
+        self.0.lock().unwrap().push(Notification {
+            message,
+            created_at: Instant::now(),
+        });
     }
 }
 
